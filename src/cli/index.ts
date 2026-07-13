@@ -40,7 +40,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
   ${chalk.bold("Options")}
     --set-api-key <key>                API 키 설정
-    --model <model>                    모델 변경 (기본: gpt-4o)
+    --model <model>                    모델 변경 (기본: gpt-5.5)
     --auto-approve                     카테고리별 한 번 승인 후 자동
     --dangerously-skip-permissions     모든 권한 확인 건너뛰기
 `);
@@ -114,6 +114,19 @@ process.stdin.on("keypress", (_str: string, key: readline.Key) => {
   }
 });
 
+// Auto-show completions when "/" is typed
+process.stdin.on("keypress", (str: string) => {
+  if (str === "/") {
+    // After readline processes the "/" character, trigger Tab completion
+    setImmediate(() => {
+      const line = (rl as unknown as { line: string }).line ?? "";
+      if (line === "/") {
+        rl.write("\t");
+      }
+    });
+  }
+});
+
 function getTermWidth(): number {
   return process.stdout.columns || 80;
 }
@@ -161,12 +174,15 @@ function rebuildCM(): void {
 
 // ─── Model Selection ───────────────────────────────────
 const MODELS = [
-  { id: "gpt-4o", desc: "가장 강력한 모델. 복잡한 코딩과 분석에 적합." },
-  { id: "gpt-4o-mini", desc: "빠르고 가성비 좋은 모델. 간단한 작업에 적합." },
-  { id: "gpt-4.1", desc: "코딩 특화 모델. 정확한 코드 생성." },
-  { id: "gpt-4.1-mini", desc: "코딩 특화 경량 모델." },
-  { id: "gpt-4.1-nano", desc: "가장 빠른 초경량 모델." },
-  { id: "o4-mini", desc: "추론 특화 모델. 복잡한 문제 해결." },
+  { id: "gpt-5.5", desc: "Frontier model for complex coding, research, and real-world work." },
+  { id: "gpt-5.4", desc: "Strong model for everyday coding." },
+  { id: "gpt-5.4-mini", desc: "Small, fast, and cost-efficient model for simpler coding tasks." },
+  { id: "gpt-4o", desc: "Strong multimodal model for complex tasks." },
+  { id: "gpt-4o-mini", desc: "Fast and cost-efficient for simple tasks." },
+  { id: "gpt-4.1", desc: "Coding-specialized model with precise code generation." },
+  { id: "gpt-4.1-mini", desc: "Lightweight coding-specialized model." },
+  { id: "gpt-4.1-nano", desc: "Ultra-fast lightweight model." },
+  { id: "o4-mini", desc: "Reasoning model for complex problem solving." },
 ];
 
 async function selectModel(): Promise<void> {

@@ -10,7 +10,7 @@ export interface BcaveConfig {
 
 const DEFAULT_CONFIG: BcaveConfig = {
   apiKey: "",
-  model: "gpt-4o",
+  model: "gpt-5.5",
   baseUrl: "https://api.openai.com/v1",
 };
 

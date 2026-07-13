@@ -20,7 +20,7 @@ describe("Config", () => {
 
   it("returns default config when no file exists", () => {
     const config = loadConfig();
-    expect(config.model).toBe("gpt-4o");
+    expect(config.model).toBe("gpt-5.5");
     expect(config.baseUrl).toBe("https://api.openai.com/v1");
     expect(config.apiKey).toBe("");
   });
@@ -29,14 +29,14 @@ describe("Config", () => {
     saveConfig({ apiKey: "sk-test123" });
     const config = loadConfig();
     expect(config.apiKey).toBe("sk-test123");
-    expect(config.model).toBe("gpt-4o");
+    expect(config.model).toBe("gpt-5.5");
   });
 
   it("merges partial config with existing", () => {
     saveConfig({ apiKey: "sk-test123" });
-    saveConfig({ model: "gpt-4o-mini" });
+    saveConfig({ model: "gpt-5.5-mini" });
     const config = loadConfig();
     expect(config.apiKey).toBe("sk-test123");
-    expect(config.model).toBe("gpt-4o-mini");
+    expect(config.model).toBe("gpt-5.5-mini");
   });
 });
