@@ -83,74 +83,118 @@ const COMMANDS = [
   { name: "/reset", desc: "설정 초기화" },
 ];
 
-// Interactive command selector (like model selector)
-let commandSelectorActive = false;
+// Interactive selector helper — used for both commands and models
+let selectorActive = false;
 
-async function selectCommand(): Promise<string | null> {
+interface SelectorItem {
+  label: string;
+  dimLabel: string;
+}
+
+async function showSelector(items: SelectorItem[], initialIndex = 0): Promise<number> {
   return new Promise((resolve) => {
-    commandSelectorActive = true;
-    let selected = 0;
+    selectorActive = true;
+    let selected = initialIndex;
+    const count = items.length;
 
-    // Save the cursor position where the selector starts
-    process.stdout.write("\x1b[s");
+    // Get current cursor row via ANSI DSR
+    // Instead, use a simpler approach: just track lines we print
+    // Reserve space by scrolling, then use relative movement only
 
-    function render(): void {
-      // Restore to saved position, then draw from there (only downward)
-      process.stdout.write("\x1b[u");
-      for (let i = 0; i < COMMANDS.length; i++) {
-        const c = COMMANDS[i];
-        process.stdout.write("\r\x1b[2K");
-        if (i === selected) {
-          process.stdout.write(chalk.cyan(`  › ${c.name.padEnd(14)}${c.desc}`));
-        } else {
-          process.stdout.write(chalk.dim(`    ${c.name.padEnd(14)}${c.desc}`));
-        }
-        if (i < COMMANDS.length - 1) process.stdout.write("\n");
+    // Write all items initially
+    for (let i = 0; i < count; i++) {
+      if (i === selected) {
+        process.stdout.write(chalk.cyan(`  › ${items[i].label}`) + "\n");
+      } else {
+        process.stdout.write(chalk.dim(`    ${items[i].dimLabel}`) + "\n");
       }
-      // Move cursor back to saved position
-      process.stdout.write("\x1b[u");
+    }
+    // Now cursor is below all items. Move up to first item line.
+    process.stdout.write(`\x1b[${count}A`);
+
+    function renderLine(idx: number): void {
+      process.stdout.write("\r\x1b[2K");
+      if (idx === selected) {
+        process.stdout.write(chalk.cyan(`  › ${items[idx].label}`));
+      } else {
+        process.stdout.write(chalk.dim(`    ${items[idx].dimLabel}`));
+      }
     }
 
-    // Print blank lines to reserve space
-    for (let i = 0; i < COMMANDS.length; i++) process.stdout.write("\n");
-    // Move back up to start position
-    process.stdout.write(`\x1b[${COMMANDS.length}A`);
-    // Save this position
-    process.stdout.write("\x1b[s");
-    render();
-
-    function cleanup(): void {
-      process.stdout.write("\x1b[u");
-      for (let i = 0; i < COMMANDS.length; i++) {
+    function clearAll(): void {
+      // Cursor is at the first item line
+      for (let i = 0; i < count; i++) {
         process.stdout.write("\r\x1b[2K");
-        if (i < COMMANDS.length - 1) process.stdout.write("\n");
+        if (i < count - 1) process.stdout.write("\x1b[B"); // move down
       }
-      process.stdout.write("\x1b[u");
+      // Move back up
+      if (count > 1) process.stdout.write(`\x1b[${count - 1}A`);
+    }
+
+    // Cursor starts at line 0 (first item)
+    let cursorLine = 0;
+
+    function moveCursorToLine(line: number): void {
+      if (line > cursorLine) {
+        process.stdout.write(`\x1b[${line - cursorLine}B`);
+      } else if (line < cursorLine) {
+        process.stdout.write(`\x1b[${cursorLine - line}A`);
+      }
+      cursorLine = line;
     }
 
     const onKeypress = (_str: string, key: readline.Key) => {
       if (!key) return;
       if (key.name === "up") {
-        selected = (selected - 1 + COMMANDS.length) % COMMANDS.length;
-        render();
+        const prev = selected;
+        selected = (selected - 1 + count) % count;
+        // Re-render old and new lines
+        moveCursorToLine(prev);
+        renderLine(prev);
+        moveCursorToLine(selected);
+        renderLine(selected);
       } else if (key.name === "down") {
-        selected = (selected + 1) % COMMANDS.length;
-        render();
+        const prev = selected;
+        selected = (selected + 1) % count;
+        moveCursorToLine(prev);
+        renderLine(prev);
+        moveCursorToLine(selected);
+        renderLine(selected);
       } else if (key.name === "return") {
         process.stdin.removeListener("keypress", onKeypress);
-        cleanup();
-        commandSelectorActive = false;
-        resolve(COMMANDS[selected].name);
+        moveCursorToLine(0);
+        clearAll();
+        selectorActive = false;
+        resolve(selected);
       } else if (key.name === "escape" || key.name === "backspace") {
         process.stdin.removeListener("keypress", onKeypress);
-        cleanup();
-        commandSelectorActive = false;
-        resolve(null);
+        moveCursorToLine(0);
+        clearAll();
+        selectorActive = false;
+        resolve(-1);
+      } else if (_str >= "1" && _str <= String(count)) {
+        const prev = selected;
+        selected = parseInt(_str) - 1;
+        process.stdin.removeListener("keypress", onKeypress);
+        moveCursorToLine(0);
+        clearAll();
+        selectorActive = false;
+        resolve(selected);
       }
     };
 
     process.stdin.on("keypress", onKeypress);
   });
+}
+
+async function selectCommand(): Promise<string | null> {
+  const items = COMMANDS.map((c) => ({
+    label: `${c.name.padEnd(14)}${c.desc}`,
+    dimLabel: `${c.name.padEnd(14)}${c.desc}`,
+  }));
+  const idx = await showSelector(items);
+  if (idx < 0) return null;
+  return COMMANDS[idx].name;
 }
 
 // ─── Readline ──────────────────────────────────────────
@@ -161,7 +205,7 @@ const rl = readline.createInterface({
 
 // Shift+Tab: mode cycle
 process.stdin.on("keypress", (_str: string, key: readline.Key) => {
-  if (commandSelectorActive) return;
+  if (selectorActive) return;
   if (key && key.name === "tab" && key.shift) {
     process.stdout.write("\r\x1b[2K");
     cycleMode();
@@ -175,7 +219,7 @@ process.stdin.on("keypress", (_str: string, key: readline.Key) => {
 
 // "/" typed → open command selector
 process.stdin.on("keypress", (str: string) => {
-  if (commandSelectorActive) return;
+  if (selectorActive) return;
   if (str === "/") {
     setImmediate(async () => {
       const line = (rl as unknown as { line: string }).line ?? "";
@@ -258,86 +302,24 @@ const MODELS = [
 ];
 
 async function selectModel(): Promise<void> {
-  return new Promise((resolve) => {
-    let selected = MODELS.findIndex((m) => m.id === config.model);
-    if (selected === -1) selected = 0;
-    const headerLines = 2; // "Select Model" + blank line
-    const totalLines = headerLines + MODELS.length;
-
-    process.stdout.write("\x1b[s");
-
-    function render(): void {
-      process.stdout.write("\x1b[u");
-      process.stdout.write("\r\x1b[2K" + chalk.bold("  Select Model") + "\n");
-      process.stdout.write("\r\x1b[2K\n");
-      for (let i = 0; i < MODELS.length; i++) {
-        const m = MODELS[i];
-        const current = m.id === config.model ? chalk.dim(" (current)") : "";
-        process.stdout.write("\r\x1b[2K");
-        if (i === selected) {
-          process.stdout.write(chalk.cyan(`  › ${(i + 1)}. ${chalk.bold(m.id)}${current}  ${chalk.dim(m.desc)}`));
-        } else {
-          process.stdout.write(chalk.dim(`    ${(i + 1)}. ${m.id}${current}  ${m.desc}`));
-        }
-        if (i < MODELS.length - 1) process.stdout.write("\n");
-      }
-      process.stdout.write("\x1b[u");
-    }
-
-    // Reserve space
-    for (let i = 0; i < totalLines; i++) process.stdout.write("\n");
-    process.stdout.write(`\x1b[${totalLines}A`);
-    process.stdout.write("\x1b[s");
-    render();
-
-    function cleanup(): void {
-      process.stdout.write("\x1b[u");
-      for (let i = 0; i < totalLines; i++) {
-        process.stdout.write("\r\x1b[2K");
-        if (i < totalLines - 1) process.stdout.write("\n");
-      }
-      process.stdout.write("\x1b[u");
-    }
-
-    const onKeypress = (_str: string, key: readline.Key) => {
-      if (!key) return;
-
-      if (key.name === "up") {
-        selected = (selected - 1 + MODELS.length) % MODELS.length;
-        render();
-      } else if (key.name === "down") {
-        selected = (selected + 1) % MODELS.length;
-        render();
-      } else if (key.name === "return") {
-        process.stdin.removeListener("keypress", onKeypress);
-        cleanup();
-        const chosen = MODELS[selected];
-        saveConfig({ model: chosen.id });
-        config = loadConfig();
-        rebuildCM();
-        console.log(chalk.green(`  ✓ model → ${chalk.bold(chosen.id)}`));
-        console.log("");
-        resolve();
-      } else if (key.name === "escape" || (key.ctrl && key.name === "c")) {
-        process.stdin.removeListener("keypress", onKeypress);
-        cleanup();
-        resolve();
-      } else if (_str >= "1" && _str <= String(MODELS.length)) {
-        selected = parseInt(_str) - 1;
-        process.stdin.removeListener("keypress", onKeypress);
-        cleanup();
-        const chosen = MODELS[selected];
-        saveConfig({ model: chosen.id });
-        config = loadConfig();
-        rebuildCM();
-        console.log(chalk.green(`  ✓ model → ${chalk.bold(chosen.id)}`));
-        console.log("");
-        resolve();
-      }
+  const initialIdx = Math.max(0, MODELS.findIndex((m) => m.id === config.model));
+  console.log(chalk.bold("  Select Model"));
+  console.log("");
+  const items = MODELS.map((m, i) => {
+    const current = m.id === config.model ? " (current)" : "";
+    return {
+      label: `${(i + 1)}. ${chalk.bold(m.id)}${current}  ${chalk.dim(m.desc)}`,
+      dimLabel: `${(i + 1)}. ${m.id}${current}  ${m.desc}`,
     };
-
-    process.stdin.on("keypress", onKeypress);
   });
+  const idx = await showSelector(items, initialIdx);
+  if (idx >= 0) {
+    const chosen = MODELS[idx];
+    saveConfig({ model: chosen.id });
+    config = loadConfig();
+    rebuildCM();
+    console.log(chalk.green(`  ✓ model → ${chalk.bold(chosen.id)}`));
+  }
 }
 
 // ─── API Key Setup ─────────────────────────────────────
