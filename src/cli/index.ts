@@ -124,11 +124,19 @@ const rl = readline.createInterface({
   completer: slashCompleter,
 });
 
-// Shift+Tab: mode cycle
+// Shift+Tab: mode cycle — close current prompt and re-prompt with new mode
 process.stdin.on("keypress", (_str: string, key: readline.Key) => {
   if (key && key.name === "tab" && key.shift) {
+    // Clear the current prompt line
+    process.stdout.write("\r\x1b[2K");
     cycleMode();
-    prompt();
+    // Re-draw prompt with updated mode (using setImmediate to let readline settle)
+    setImmediate(() => {
+      // Close and recreate the current question by writing empty line
+      // We simulate pressing Enter on empty to restart prompt
+      (rl as unknown as { line: string }).line = "";
+      rl.write("\n");
+    });
     return;
   }
 });
@@ -154,12 +162,19 @@ process.stdin.on("keypress", (_str: string, key2: readline.Key) => {
   });
 });
 
+function getTermWidth(): number {
+  return process.stdout.columns || 80;
+}
+
 function prompt(): void {
   currentLine = "";
   lastSuggestionLines = 0;
   const modeInfo = MODE_INFO[mode];
-  const modeHint = modeInfo.color(`[${modeInfo.label}]`);
-  rl.question(`${modeHint} ${chalk.bold(">")} `, (answer) => {
+  const modeTag = modeInfo.color(modeInfo.label);
+  const cwd = process.cwd();
+  const separator = chalk.dim("─".repeat(getTermWidth()));
+  console.log(separator);
+  rl.question(`${modeTag} ${chalk.dim(cwd)} ${chalk.bold(">")} `, (answer) => {
     clearSuggestions();
     handleInput(answer);
   });
@@ -345,7 +360,12 @@ async function processAgentEvents(gen: AsyncGenerator<AgentEvent>): Promise<void
 // ─── Main Input ────────────────────────────────────────
 async function handleInput(text: string): Promise<void> {
   const trimmed = text.trim();
-  if (!trimmed) { prompt(); return; }
+  if (!trimmed) {
+    // Clear the empty separator+prompt and re-draw
+    process.stdout.write("\x1b[A\r\x1b[2K");
+    prompt();
+    return;
+  }
 
   if (await handleSlashCommand(trimmed)) { prompt(); return; }
 
