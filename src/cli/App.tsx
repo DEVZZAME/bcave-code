@@ -4,13 +4,17 @@ import TextInput from "ink-text-input";
 import { ConversationManager, type AgentEvent, type ToolCallRequest } from "../agent/conversation.js";
 import { PermissionManager, type PermissionMode } from "../agent/permissions.js";
 import type { BcaveConfig } from "../config/config.js";
+import { loadConfig } from "../config/config.js";
 import { MessageOutput } from "./components/MessageOutput.js";
 import { PermissionPrompt } from "./components/PermissionPrompt.js";
+import { Banner } from "./components/Banner.js";
+import { ApiKeySetup } from "./components/ApiKeySetup.js";
 
 interface Props {
   config: BcaveConfig;
   mode: PermissionMode;
   initialPrompt?: string;
+  hasApiKey: boolean;
 }
 
 interface Message {
@@ -19,13 +23,18 @@ interface Message {
   toolName?: string;
 }
 
-export function App({ config, mode, initialPrompt }: Props) {
+type Screen = "welcome" | "chat" | "config";
+
+export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
   const { exit } = useApp();
+  const [screen, setScreen] = useState<Screen>(hasApiKey ? "chat" : "welcome");
+  const [activeConfig, setActiveConfig] = useState<BcaveConfig>(config);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<ToolCallRequest | null>(null);
-  const [cm] = useState(() => {
+  const [cm, setCm] = useState<ConversationManager | null>(() => {
+    if (!hasApiKey) return null;
     const pm = new PermissionManager(mode);
     return new ConversationManager(config, pm, process.cwd());
   });
@@ -57,7 +66,14 @@ export function App({ config, mode, initialPrompt }: Props) {
 
   const handleSubmit = useCallback(
     (text: string) => {
-      if (!text.trim() || isProcessing) return;
+      if (!text.trim() || isProcessing || !cm) return;
+
+      if (text.trim() === "/config") {
+        setInput("");
+        setScreen("config");
+        return;
+      }
+
       setMessages((prev) => [...prev, { role: "user", content: text }]);
       setInput("");
       setIsProcessing(true);
@@ -68,10 +84,10 @@ export function App({ config, mode, initialPrompt }: Props) {
   );
 
   useEffect(() => {
-    if (initialPrompt) {
+    if (initialPrompt && screen === "chat" && cm) {
       handleSubmit(initialPrompt);
     }
-  }, []);
+  }, [screen]);
 
   useInput((_, key) => {
     if (key.ctrl && _.toLowerCase() === "c") {
@@ -80,31 +96,82 @@ export function App({ config, mode, initialPrompt }: Props) {
   });
 
   const handleApprove = useCallback(() => {
-    if (pendingPermission) {
+    if (pendingPermission && cm) {
       cm.approveToolCall(pendingPermission.id);
       setPendingPermission(null);
     }
   }, [cm, pendingPermission]);
 
   const handleAlways = useCallback(() => {
-    if (pendingPermission) {
+    if (pendingPermission && cm) {
       cm.approveToolCall(pendingPermission.id);
       setPendingPermission(null);
     }
   }, [cm, pendingPermission]);
 
   const handleReject = useCallback(() => {
-    if (pendingPermission) {
+    if (pendingPermission && cm) {
       cm.rejectToolCall(pendingPermission.id);
       setPendingPermission(null);
     }
   }, [cm, pendingPermission]);
 
+  const handleApiKeyComplete = useCallback(
+    (apiKey: string) => {
+      const newConfig = loadConfig();
+      setActiveConfig(newConfig);
+      const pm = new PermissionManager(mode);
+      const newCm = new ConversationManager(newConfig, pm, process.cwd());
+      setCm(newCm);
+      setScreen("chat");
+    },
+    [mode]
+  );
+
+  // Welcome / API key setup screen
+  if (screen === "welcome") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Banner />
+        <ApiKeySetup onComplete={handleApiKeyComplete} />
+      </Box>
+    );
+  }
+
+  // Config change screen (triggered by /config command)
+  if (screen === "config") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Banner compact />
+        <ApiKeySetup
+          onComplete={(apiKey) => {
+            handleApiKeyComplete(apiKey);
+            setScreen("chat");
+          }}
+        />
+      </Box>
+    );
+  }
+
+  // Mode badge
+  const modeBadge: Record<PermissionMode, { label: string; color: string }> = {
+    safe: { label: "SAFE", color: "green" },
+    "auto-approve": { label: "AUTO-APPROVE", color: "yellow" },
+    yolo: { label: "YOLO", color: "red" },
+  };
+  const badge = modeBadge[mode];
+
+  // Chat screen
   return (
     <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color="cyan" bold>BCave CLI</Text>
-        <Text dimColor> — GPT-4o agent (mode: {mode})</Text>
+      <Banner compact />
+
+      <Box marginBottom={1} flexDirection="row" gap={2}>
+        <Box borderStyle="round" borderColor={badge.color} paddingX={1}>
+          <Text color={badge.color as "green" | "yellow" | "red"} bold>{badge.label}</Text>
+        </Box>
+        <Text dimColor>{process.cwd()}</Text>
+        <Text dimColor>  /config — API 키 변경</Text>
       </Box>
 
       {messages.map((msg, i) => (
@@ -122,11 +189,14 @@ export function App({ config, mode, initialPrompt }: Props) {
       )}
 
       {isProcessing && !pendingPermission && (
-        <Text color="yellow">⏳ Thinking...</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text color="cyan">{"⏳"}</Text>
+          <Text color="cyan" dimColor>생각 중...</Text>
+        </Box>
       )}
 
       {!isProcessing && (
-        <Box>
+        <Box marginTop={1} flexDirection="row">
           <Text color="green" bold>{"❯ "}</Text>
           <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
         </Box>

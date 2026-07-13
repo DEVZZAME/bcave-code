@@ -45,19 +45,15 @@ if (cli.flags.model) {
   config.model = cli.flags.model;
 }
 
-if (!config.apiKey) {
-  console.error("No API key set. Run: bcave --set-api-key <your-key>");
-  process.exit(1);
-}
+const hasApiKey = Boolean(config.apiKey);
 
 let mode: PermissionMode = "safe";
 if (cli.flags.dangerouslySkipPermissions) {
   mode = "yolo";
-  console.log("\n⚠️  Running with ALL permissions skipped. Be careful!\n");
 } else if (cli.flags.autoApprove) {
   mode = "auto-approve";
 }
 
 const initialPrompt = cli.input.join(" ") || undefined;
 
-render(<App config={config} mode={mode} initialPrompt={initialPrompt} />);
+render(<App config={config} mode={mode} initialPrompt={initialPrompt} hasApiKey={hasApiKey} />);
