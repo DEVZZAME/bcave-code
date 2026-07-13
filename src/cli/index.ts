@@ -78,22 +78,20 @@ function cycleMode(): void {
 const COMMANDS = [
   { name: "/help", desc: "도움말 표시" },
   { name: "/api-key", desc: "API 키 변경" },
-  { name: "/reset", desc: "설정 초기화" },
-  { name: "/model", desc: "모델 변경" },
+  { name: "/model", desc: "모델 선택" },
   { name: "/mode", desc: "모드 전환" },
+  { name: "/reset", desc: "설정 초기화" },
 ];
 
-// Tab completion: /로 시작하면 명령어 목록 + 설명 표시
+// Tab completion for slash commands
 function slashCompleter(line: string): [string[], string] {
   if (!line.startsWith("/")) return [[], line];
   const matches = COMMANDS.filter((c) => c.name.startsWith(line));
   if (matches.length === 0) return [[], line];
-  // Show "name  — desc" format for display, but complete with just the name
-  const display = matches.map((c) => `${c.name.padEnd(14)}${chalk.dim(c.desc)}`);
   const completions = matches.map((c) => c.name);
-  // If only one match, complete it directly
   if (completions.length === 1) return [completions, line];
-  return [display, line];
+  // Show names for display
+  return [completions, line];
 }
 
 // ─── Readline ──────────────────────────────────────────
@@ -161,6 +159,94 @@ function rebuildCM(): void {
   cm = new ConversationManager(config, pm, process.cwd());
 }
 
+// ─── Model Selection ───────────────────────────────────
+const MODELS = [
+  { id: "gpt-4o", desc: "가장 강력한 모델. 복잡한 코딩과 분석에 적합." },
+  { id: "gpt-4o-mini", desc: "빠르고 가성비 좋은 모델. 간단한 작업에 적합." },
+  { id: "gpt-4.1", desc: "코딩 특화 모델. 정확한 코드 생성." },
+  { id: "gpt-4.1-mini", desc: "코딩 특화 경량 모델." },
+  { id: "gpt-4.1-nano", desc: "가장 빠른 초경량 모델." },
+  { id: "o4-mini", desc: "추론 특화 모델. 복잡한 문제 해결." },
+];
+
+async function selectModel(): Promise<void> {
+  return new Promise((resolve) => {
+    let selected = MODELS.findIndex((m) => m.id === config.model);
+    if (selected === -1) selected = 0;
+
+    function render(): void {
+      // Clear previous render
+      process.stdout.write(`\x1b[${MODELS.length + 3}A`);
+      for (let i = 0; i < MODELS.length + 3; i++) {
+        process.stdout.write("\r\x1b[2K\n");
+      }
+      process.stdout.write(`\x1b[${MODELS.length + 3}A`);
+
+      console.log("");
+      console.log(chalk.bold("  Select Model"));
+      console.log("");
+      for (let i = 0; i < MODELS.length; i++) {
+        const m = MODELS[i];
+        const current = m.id === config.model ? chalk.dim(" (current)") : "";
+        if (i === selected) {
+          console.log(chalk.cyan(`  › ${(i + 1)}. ${chalk.bold(m.id)}${current}  ${chalk.dim(m.desc)}`));
+        } else {
+          console.log(chalk.dim(`    ${(i + 1)}. ${m.id}${current}  ${m.desc}`));
+        }
+      }
+    }
+
+    // Initial render - print blank lines first so we can overwrite
+    for (let i = 0; i < MODELS.length + 3; i++) {
+      console.log("");
+    }
+    render();
+
+    const onKeypress = (_str: string, key: readline.Key) => {
+      if (!key) return;
+
+      if (key.name === "up" || (key.name === "k")) {
+        selected = (selected - 1 + MODELS.length) % MODELS.length;
+        render();
+      } else if (key.name === "down" || (key.name === "j")) {
+        selected = (selected + 1) % MODELS.length;
+        render();
+      } else if (key.name === "return") {
+        process.stdin.removeListener("keypress", onKeypress);
+        const chosen = MODELS[selected];
+        saveConfig({ model: chosen.id });
+        config = loadConfig();
+        rebuildCM();
+        console.log("");
+        console.log(chalk.green(`  ✓ model → ${chalk.bold(chosen.id)}`));
+        console.log("");
+        resolve();
+      } else if (key.name === "escape" || (key.ctrl && key.name === "c")) {
+        process.stdin.removeListener("keypress", onKeypress);
+        console.log("");
+        console.log(chalk.dim("  취소됨"));
+        console.log("");
+        resolve();
+      } else if (_str >= "1" && _str <= String(MODELS.length)) {
+        // Number key selection
+        selected = parseInt(_str) - 1;
+        process.stdin.removeListener("keypress", onKeypress);
+        const chosen = MODELS[selected];
+        saveConfig({ model: chosen.id });
+        config = loadConfig();
+        rebuildCM();
+        render();
+        console.log("");
+        console.log(chalk.green(`  ✓ model → ${chalk.bold(chosen.id)}`));
+        console.log("");
+        resolve();
+      }
+    };
+
+    process.stdin.on("keypress", onKeypress);
+  });
+}
+
 // ─── API Key Setup ─────────────────────────────────────
 async function setupApiKey(): Promise<void> {
   return new Promise((resolve) => {
@@ -214,13 +300,18 @@ async function handleSlashCommand(text: string): Promise<boolean> {
     process.exit(0);
   }
 
-  if (trimmed.startsWith("/model ")) {
-    const newModel = trimmed.slice(7).trim();
-    if (!newModel) { console.log(chalk.dim("  사용법: /model gpt-4o-mini")); return true; }
-    saveConfig({ model: newModel });
-    config = loadConfig();
-    rebuildCM();
-    console.log(chalk.green(`  ✓ model → ${newModel}`));
+  if (trimmed === "/model" || trimmed.startsWith("/model ")) {
+    // If model name provided directly, set it
+    const directModel = trimmed.slice(7).trim();
+    if (directModel) {
+      saveConfig({ model: directModel });
+      config = loadConfig();
+      rebuildCM();
+      console.log(chalk.green(`  ✓ model → ${directModel}`));
+      return true;
+    }
+    // Interactive model selection
+    await selectModel();
     return true;
   }
 
