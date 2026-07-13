@@ -1,0 +1,33 @@
+{
+  "name": "@bcave/cli",
+  "version": "0.1.0",
+  "description": "OpenAI GPT-4 기반 로컬 코딩 에이전트 CLI",
+  "type": "module",
+  "bin": {
+    "bcave": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "glob": "^13.0.6",
+    "ink": "^7.1.0",
+    "meow": "^14.1.0",
+    "openai": "^6.46.0",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
