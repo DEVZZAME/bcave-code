@@ -333,7 +333,9 @@ async function handleSlashCommand(text: string): Promise<boolean> {
     return true;
   }
 
-  if (trimmed.startsWith("/")) {
+  // Only treat as unknown command if it matches a slash-command pattern
+  // (single word starting with /, not a file path like /users/foo)
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//") && /^\/[a-z-]+$/i.test(trimmed.split(" ")[0]) && !trimmed.includes("/", 1)) {
     console.log(chalk.yellow(`  ✗ 알 수 없는 명령어: ${trimmed}`));
     console.log(chalk.dim("    /help 로 사용 가능한 명령어를 확인하세요."));
     console.log("");
