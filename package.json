@@ -18,6 +18,7 @@
   "keywords": [],
   "license": "UNLICENSED",
   "dependencies": {
+    "chalk": "^5.6.2",
     "glob": "^13.0.6",
     "ink": "^7.1.0",
     "ink-text-input": "^6.0.0",
