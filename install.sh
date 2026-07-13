@@ -29,7 +29,8 @@ INSTALL_DIR="$HOME/.bcave-cli"
 # 기존 설치 제거
 if [ -d "$INSTALL_DIR" ]; then
     echo "🔄 기존 설치를 업데이트합니다..."
-    cd "$INSTALL_DIR" && npm unlink 2>/dev/null || true
+    cd "$HOME"
+    npm unlink -g @bcave/cli 2>/dev/null || true
     rm -rf "$INSTALL_DIR"
 fi
 
@@ -43,12 +44,25 @@ echo "📦 의존성을 설치합니다..."
 npm install --silent 2>/dev/null
 echo "🔨 빌드 중..."
 npm run build --silent 2>/dev/null
-npm link 2>/dev/null
+
+# 실행 권한 부여
+chmod +x dist/cli/index.js
+
+# npm link (권한 문제 시 sudo로 재시도)
+echo "🔗 bcave 명령어를 등록합니다..."
+if npm link 2>/dev/null; then
+    true
+else
+    echo "   관리자 권한이 필요합니다. 비밀번호를 입력해주세요."
+    sudo npm link 2>/dev/null
+fi
 
 echo ""
 echo "✅ BCave CLI 설치 완료!"
 echo ""
-echo "  사용법:"
-echo "    bcave --set-api-key sk-xxxxx    # API 키 설정 (최초 1회)"
-echo "    bcave \"파일 정리해줘\"             # 사용 시작"
+echo "  다음 단계:"
+echo "    bcave --set-api-key sk-xxxxx    # API 키 설정 (최초 1회, 사내 공유 키 입력)"
+echo ""
+echo "  설정 후 사용:"
+echo "    bcave \"파일 정리해줘\""
 echo ""
