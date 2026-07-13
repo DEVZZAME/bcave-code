@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Text, Box, useInput, useApp } from "ink";
-import TextInput from "ink-text-input";
 import fs from "node:fs";
 import { ConversationManager, type AgentEvent, type ToolCallRequest } from "../agent/conversation.js";
 import { PermissionManager, type PermissionMode } from "../agent/permissions.js";
@@ -10,6 +9,7 @@ import { MessageOutput } from "./components/MessageOutput.js";
 import { PermissionPrompt } from "./components/PermissionPrompt.js";
 import { Banner } from "./components/Banner.js";
 import { ApiKeySetup } from "./components/ApiKeySetup.js";
+import { Input } from "./components/Input.js";
 
 interface Props {
   config: BcaveConfig;
@@ -26,19 +26,37 @@ interface Message {
 
 type Screen = "welcome" | "chat" | "apikey";
 
-export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
+const MODE_ORDER: PermissionMode[] = ["safe", "auto-approve", "yolo"];
+const MODE_LABELS: Record<PermissionMode, { label: string; color: string; desc: string }> = {
+  safe: { label: "SAFE", color: "green", desc: "모든 작업 전 확인" },
+  "auto-approve": { label: "AUTO-APPROVE", color: "yellow", desc: "카테고리별 한 번 승인 후 자동" },
+  yolo: { label: "YOLO", color: "red", desc: "확인 없이 모두 실행" },
+};
+
+export function App({ config, mode: initialMode, initialPrompt, hasApiKey }: Props) {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>(hasApiKey ? "chat" : "welcome");
   const [activeConfig, setActiveConfig] = useState<BcaveConfig>(config);
+  const [currentMode, setCurrentMode] = useState<PermissionMode>(initialMode);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<ToolCallRequest | null>(null);
   const [cm, setCm] = useState<ConversationManager | null>(() => {
     if (!hasApiKey) return null;
-    const pm = new PermissionManager(mode);
+    const pm = new PermissionManager(initialMode);
     return new ConversationManager(config, pm, process.cwd());
   });
+
+  const rebuildConversationManager = useCallback(
+    (cfg: BcaveConfig, mode: PermissionMode) => {
+      const pm = new PermissionManager(mode);
+      const newCm = new ConversationManager(cfg, pm, process.cwd());
+      setCm(newCm);
+      return newCm;
+    },
+    []
+  );
 
   const processEvents = useCallback(async (gen: AsyncGenerator<AgentEvent>) => {
     for await (const event of gen) {
@@ -67,18 +85,19 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
 
   const showHelp = useCallback(() => {
     const helpText = [
-      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
       "  BCave CODE — 사용 가능한 명령어",
-      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
       "",
       "  /help          이 도움말을 표시합니다",
       "  /api-key       API 키를 변경합니다",
       "  /reset         모든 설정을 초기화합니다",
       "  /model <name>  모델을 변경합니다 (예: /model gpt-4o-mini)",
       "  /mode          현재 권한 모드를 표시합니다",
+      "  Shift+Tab      권한 모드를 전환합니다",
       "  Ctrl+C         BCave를 종료합니다",
       "",
-      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     ].join("\n");
     setMessages((prev) => [...prev, { role: "assistant", content: helpText }]);
   }, []);
@@ -123,9 +142,7 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
         saveConfig({ model: newModel });
         const newConfig = loadConfig();
         setActiveConfig(newConfig);
-        const pm = new PermissionManager(mode);
-        const newCm = new ConversationManager(newConfig, pm, process.cwd());
-        setCm(newCm);
+        rebuildConversationManager(newConfig, currentMode);
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: `모델이 ${newModel}(으)로 변경되었습니다.` },
@@ -134,14 +151,10 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
       }
 
       if (trimmed === "/mode") {
-        const modeLabels: Record<PermissionMode, string> = {
-          safe: "Safe — 모든 작업 전 확인",
-          "auto-approve": "Auto-approve — 카테고리별 한 번 승인 후 자동",
-          yolo: "YOLO — 확인 없이 모두 실행",
-        };
+        const info = MODE_LABELS[currentMode];
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `현재 권한 모드: ${modeLabels[mode]}` },
+          { role: "assistant", content: `현재 권한 모드: ${info.label} — ${info.desc}\nShift+Tab 으로 전환할 수 있습니다.` },
         ]);
         return true;
       }
@@ -156,7 +169,7 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
 
       return false;
     },
-    [mode, showHelp]
+    [currentMode, showHelp, rebuildConversationManager]
   );
 
   const handleSubmit = useCallback(
@@ -189,9 +202,19 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
     }
   }, [screen]);
 
-  useInput((_, key) => {
-    if (key.ctrl && _.toLowerCase() === "c") {
+  // Shift+Tab to cycle modes + Ctrl+C to exit
+  useInput((ch, key) => {
+    if (key.ctrl && ch.toLowerCase() === "c") {
       exit();
+    }
+
+    if (key.shift && key.tab && screen === "chat" && !isProcessing) {
+      setCurrentMode((prev) => {
+        const idx = MODE_ORDER.indexOf(prev);
+        const nextMode = MODE_ORDER[(idx + 1) % MODE_ORDER.length];
+        rebuildConversationManager(activeConfig, nextMode);
+        return nextMode;
+      });
     }
   });
 
@@ -220,12 +243,10 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
     (apiKey: string) => {
       const newConfig = loadConfig();
       setActiveConfig(newConfig);
-      const pm = new PermissionManager(mode);
-      const newCm = new ConversationManager(newConfig, pm, process.cwd());
-      setCm(newCm);
+      rebuildConversationManager(newConfig, currentMode);
       setScreen("chat");
     },
-    [mode]
+    [currentMode, rebuildConversationManager]
   );
 
   // Welcome screen (no API key)
@@ -249,12 +270,7 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
   }
 
   // Mode badge
-  const modeBadge: Record<PermissionMode, { label: string; color: string }> = {
-    safe: { label: "SAFE", color: "green" },
-    "auto-approve": { label: "AUTO-APPROVE", color: "yellow" },
-    yolo: { label: "YOLO", color: "red" },
-  };
-  const badge = modeBadge[mode];
+  const badge = MODE_LABELS[currentMode];
 
   // Chat screen
   return (
@@ -266,6 +282,7 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
           <Text color={badge.color as "green" | "yellow" | "red"} bold>{badge.label}</Text>
         </Box>
         <Text dimColor>{process.cwd()}</Text>
+        <Text dimColor>Shift+Tab: 모드 전환</Text>
       </Box>
 
       {messages.map((msg, i) => (
@@ -275,7 +292,7 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
       {pendingPermission && (
         <PermissionPrompt
           request={pendingPermission}
-          isAutoApprove={mode === "auto-approve"}
+          isAutoApprove={currentMode === "auto-approve"}
           onApprove={handleApprove}
           onAlways={handleAlways}
           onReject={handleReject}
@@ -292,7 +309,12 @@ export function App({ config, mode, initialPrompt, hasApiKey }: Props) {
       {!isProcessing && (
         <Box marginTop={1} flexDirection="row">
           <Text color="green" bold>{"❯ "}</Text>
-          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+          <Input
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSubmit}
+            placeholder="메시지를 입력하세요..."
+          />
         </Box>
       )}
     </Box>
