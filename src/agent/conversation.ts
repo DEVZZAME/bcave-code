@@ -3,7 +3,8 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 import { createOpenAIClient, chat } from "../openai/client.js";
 import { executeTool, getToolCategory } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
-import type { BcaveConfig } from "../config/config.js";
+import { saveConfig, type BcaveConfig } from "../config/config.js";
+import { hubRefresh } from "../auth/hub.js";
 
 export interface ToolCallRequest {
   id: string;
@@ -54,12 +55,32 @@ export class ConversationManager {
     }
   }
 
+  /**
+   * 게이트웨이 401(세션 만료) 시 Refresh Token 으로 갱신하고 새 client 반환.
+   * 갱신 실패(만료/폐기) 시 null → 재로그인 필요.
+   */
+  private async refreshSession(): Promise<OpenAI | null> {
+    if (!this.config.accessToken || !this.config.refreshToken) return null;
+    try {
+      const r = await hubRefresh(this.config.hubUrl, this.config.refreshToken);
+      this.config.accessToken = r.accessToken;
+      this.config.refreshToken = r.refreshToken;
+      saveConfig({ accessToken: r.accessToken, refreshToken: r.refreshToken });
+      this.client = createOpenAIClient(this.config);
+      return this.client;
+    } catch {
+      return null;
+    }
+  }
+
   async *run(userMessage: string): AsyncGenerator<AgentEvent> {
     this.messages.push({ role: "user", content: userMessage });
 
     try {
       while (true) {
-        const response = await chat(this.client, this.messages, this.config.model);
+        const response = await chat(this.client, this.messages, this.config.model, {
+          onAuthError: () => this.refreshSession(),
+        });
         const choice = response.choices[0];
         if (!choice) {
           yield { type: "error", message: "No response from API" };
