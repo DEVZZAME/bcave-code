@@ -1,7 +1,7 @@
 # ============================================================
 #  BCave CLI 설치 스크립트 (Windows — PowerShell / cmd)
 #  실행: PowerShell 에서
-#    irm https://raw.githubusercontent.com/DEVZZAME/bcave-code/master/install.ps1 | iex
+#    irm https://raw.githubusercontent.com/DEVZZAME/bcave-agent/master/install.ps1 | iex
 #  설치 후 cmd·PowerShell 어디서나 `bcave` 로 실행됩니다.
 # ============================================================
 
@@ -42,7 +42,7 @@ if (Test-Path $InstallDir) {
 
 # --- 클론 ---
 Write-Host "  다운로드 중..."
-git clone --depth 1 --quiet https://github.com/DEVZZAME/bcave-code.git $InstallDir
+git clone --depth 1 --quiet https://github.com/DEVZZAME/bcave-agent.git $InstallDir
 if ($LASTEXITCODE -ne 0) { Write-Host "  X git clone 실패" -ForegroundColor Red; return }
 
 # --- 설치 + 빌드 ---

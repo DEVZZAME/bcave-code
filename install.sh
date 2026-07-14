@@ -35,7 +35,7 @@ fi
 
 # 클론
 echo "📦 BCave CLI를 다운로드합니다..."
-git clone --depth 1 https://github.com/DEVZZAME/bcave-code.git "$INSTALL_DIR"
+git clone --depth 1 https://github.com/DEVZZAME/bcave-agent.git "$INSTALL_DIR"
 
 # 설치 + 빌드
 cd "$INSTALL_DIR"

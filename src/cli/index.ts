@@ -32,7 +32,7 @@ if (args.includes("--dangerously-skip-permissions")) {
 
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
-  ${chalk.cyan.bold("BCave CODE")} — 사내 AI 코딩 에이전트 (HUB 로그인)
+  ${chalk.cyan.bold("BCAVE AGENT")} — 사내 AI 코딩 에이전트 (HUB 로그인)
 
   ${chalk.bold("Usage")}
     $ bcave [prompt]
@@ -689,30 +689,24 @@ async function main(): Promise<void> {
     console.log(chalk.yellow(line));
   }
   console.log("");
-  console.log(
-    chalk.cyan.bold(" ██████╗  ██████╗ █████╗ ██╗   ██╗███████╗") + "  " +
-    chalk.blue.bold("  ██████╗ ██████╗ ██████╗ ███████╗")
-  );
-  console.log(
-    chalk.cyan.bold(" ██╔══██╗██╔════╝██╔══██╗██║   ██║██╔════╝") + "  " +
-    chalk.blue.bold(" ██╔════╝██╔═══██╗██╔══██╗██╔════╝")
-  );
-  console.log(
-    chalk.cyan.bold(" ██████╔╝██║     ███████║██║   ██║█████╗  ") + "  " +
-    chalk.blue.bold(" ██║     ██║   ██║██║  ██║█████╗  ")
-  );
-  console.log(
-    chalk.cyan.bold(" ██╔══██╗██║     ██╔══██║╚██╗ ██╔╝██╔══╝  ") + "  " +
-    chalk.blue.bold(" ██║     ██║   ██║██║  ██║██╔══╝  ")
-  );
-  console.log(
-    chalk.cyan.bold(" ██████╔╝╚██████╗██║  ██║ ╚████╔╝ ███████╗") + "  " +
-    chalk.blue.bold(" ╚██████╗╚██████╔╝██████╔╝███████╗")
-  );
-  console.log(
-    chalk.cyan.bold(" ╚═════╝  ╚═════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝") + "  " +
-    chalk.blue.bold("  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝")
-  );
+  const bcaveArt = [
+    " ██████╗  ██████╗ █████╗ ██╗   ██╗███████╗",
+    " ██╔══██╗██╔════╝██╔══██╗██║   ██║██╔════╝",
+    " ██████╔╝██║     ███████║██║   ██║█████╗  ",
+    " ██╔══██╗██║     ██╔══██║╚██╗ ██╔╝██╔══╝  ",
+    " ██████╔╝╚██████╗██║  ██║ ╚████╔╝ ███████╗",
+    " ╚═════╝  ╚═════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝",
+  ];
+  const agentArt = [
+    "  █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
+    " ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
+    " ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
+    " ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
+    " ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
+    " ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
+  ];
+  for (const l of bcaveArt) console.log(chalk.cyan.bold(l));
+  for (const l of agentArt) console.log(chalk.blue.bold(l));
   console.log("");
   const who = isLoggedIn(config) ? `  ·  ${config.userName || config.userEmail}` : "";
   console.log("  " + chalk.dim(`v0.1.0  ·  ${config.model}  ·  ${process.cwd()}${who}`));
