@@ -47,9 +47,19 @@ npm run build --silent
 # 실행 권한 부여
 chmod +x dist/cli/index.js
 
-# bcave 명령어를 PATH에 등록 (sudo 불필요)
+# bcave 런처 생성 (심볼릭 링크 대신 래퍼 스크립트)
+#
+# 심볼릭 링크로 dist/cli/index.js 를 직접 가리키면, Windows(Git Bash)처럼
+# 심링크가 "파일 복사"로 처리되는 환경에서 런처가 node_modules 와 분리되어
+# ESM 이 의존성을 못 찾는다: "Cannot find package 'chalk' imported from
+# .../.local/bin/bcave". 래퍼가 node 에게 설치 폴더 안의 실제 경로를 넘기면
+# 의존성 해석이 항상 $INSTALL_DIR/node_modules 로 향해 모든 OS 에서 동작한다.
 mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/dist/cli/index.js" "$BIN_DIR/bcave"
+cat > "$BIN_DIR/bcave" <<EOF
+#!/bin/sh
+exec node "$INSTALL_DIR/dist/cli/index.js" "\$@"
+EOF
+chmod +x "$BIN_DIR/bcave"
 
 # PATH에 ~/.local/bin 추가 (없으면)
 SHELL_RC=""
