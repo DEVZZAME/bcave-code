@@ -181,10 +181,21 @@ function looksBinary(text: string): boolean {
 /** CI 로고·디자인시스템 CSS(+레이아웃 스캐폴드)·Chart.js 자리표시자를 실제 리소스로 치환. */
 function resolvePlaceholders(content: string): string {
   if (content.includes(BCAVE_CI)) content = content.split(BCAVE_CI).join(BCAVE_LOGO_DATA_URI);
-  // {{BCAVE_DS:id}} → 레이아웃 스캐폴드 + 프로필 디자인시스템 CSS
-  content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) =>
-    DS_STYLES[id] ? DS_LAYOUT + DS_STYLES[id] : "",
-  );
+  // {{BCAVE_DS:id}} → 프로필 디자인시스템 CSS(토큰+컴포넌트)
+  let usedDs = false;
+  content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) => {
+    if (!DS_STYLES[id]) return "";
+    usedDs = true;
+    return DS_STYLES[id];
+  });
+  // 레이아웃 스캐폴드는 </head> 직전에 별도 <style> 로 주입 → 모델이 .ds-* 를 재정의해도
+  // 스캐폴드가 소스 순서상 뒤라 레이아웃(사이드바·그리드·간격)이 항상 이긴다.
+  if (usedDs) {
+    const scaffold = `<style>${DS_LAYOUT}</style>`;
+    content = content.includes("</head>")
+      ? content.replace("</head>", scaffold + "</head>")
+      : scaffold + content;
+  }
   // Chart.js 자리표시자·CDN <script> → 인라인 소스(+기본값). 완전한 단일 파일·오프라인 가능.
   if (content.includes("{{BCAVE_CHARTJS}}")) {
     content = content.split("{{BCAVE_CHARTJS}}").join(CHARTJS_SOURCE + CHARTJS_DEFAULTS);

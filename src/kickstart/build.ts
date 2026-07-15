@@ -13,6 +13,7 @@ function dsUsage(id: string): string {
     "그 자리에 이 디자인시스템의 토큰·컴포넌트 CSS 가 자동으로 주입된다(직접 토큰을 재정의하거나 로고처럼 그리지 말 것). 이어서 이 화면 전용 레이아웃 CSS 만 덧붙여라.\n" +
     "**레이아웃은 직접 짜지 말고 아래 스캐폴드 클래스를 그대로 써라**(사이드바가 좁아 글자가 세로로 쪼개지거나 요소가 겹쳐 클릭이 막히는 문제 방지):\n" +
     "<div class=\"ds-app\">\n  <aside class=\"ds-sidebar\"><div class=\"ds-brand\"><img src=\"{{BCAVE_CI}}\" alt=\"B.CAVE\" style=\"height:22px\"></div>\n    <nav class=\"ds-nav\"><a href=\"#\" class=\"active\">개요</a><a href=\"#\">분포</a><a href=\"#\">목록</a></nav></aside>\n  <main class=\"ds-main\">\n    <div class=\"ds-topbar\"><div><h1 class=\"ds-title\">제목</h1><p class=\"ds-sub\">설명</p></div></div>\n    <div class=\"ds-kpis\">…KPI 카드(.card 또는 프로필 KPI 컴포넌트)…</div>\n    <div class=\"ds-grid\"><div class=\"card\"><h3>제목</h3><div class=\"ds-chart\"><canvas></canvas></div></div>…</div>\n    <div class=\"card\"><div class=\"ds-tablewrap\"><table>…</table></div></div>\n  </main>\n</div>\n" +
+    "**.ds-app/.ds-sidebar/.ds-nav/.ds-main/.ds-topbar/.ds-kpis/.ds-grid/.ds-chart 의 CSS(display·grid-template-columns·width 등)를 다시 정의하지 마라 — 레이아웃은 스캐폴드가 자동 처리한다. 미디어쿼리로 이 클래스를 건드리지도 마라.** " +
     "그 외 색·간격·모서리·글꼴은 통일 토큰(var(--ds-bg)/--ds-surface/--ds-text/--ds-text-2/--ds-border/--ds-accent/--ds-radius/--ds-space/--ds-font)만 쓰고, 버튼·뱃지·입력·배너 등은 위 계약 클래스를 쓴다. 하드코딩 hex 금지. " +
     "차트: 시간 추이는 line/area, 항목 비교는 bar. 차트 컨테이너는 .ds-chart 로 높이를 고정하고 options 에 responsive:true,maintainAspectRatio:false 를 넣어라."
   );
