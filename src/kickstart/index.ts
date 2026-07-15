@@ -222,20 +222,42 @@ export async function editKickstart(io: WizardIO, cwd: string): Promise<void> {
     };
   }
 
+  // 저장된 항목을 바로 목록으로 보여주고, 골라서 수정 → 저장/끝내기 반복.
+  let changed = false;
   while (true) {
-    const action = await io.finalAction(buildSummary(state));
-    if (action === 0) {
+    const rows = answeredRows(state);
+    const menu: KickstartQuestion = {
+      id: "__editmenu__",
+      type: "single_select",
+      message: "수정할 항목을 고르세요 (현재 값 표시)",
+      options: [
+        ...rows.map((r, i) => ({ label: `${r.message}  ›  ${r.answer}`, value: `e${i}` })),
+        { label: "✓ 저장하고 끝내기", value: "__save__" },
+        { label: "취소", value: "__cancel__" },
+      ],
+    };
+    const pick = await io.ask(menu, { step: 1, total: 1 });
+    if (pick.kind !== "value" || pick.value === "__cancel__") {
+      io.print(changed ? "저장하지 않고 나갑니다." : "수정을 취소했습니다.");
+      return;
+    }
+    if (pick.value === "__save__") {
       state.status = "confirmed";
       state.updatedAt = nowIso();
       const paths = store.saveFinal(cwd, state);
       io.print(`저장 완료: ${paths.json}, ${paths.md}`);
       return;
     }
-    if (action === 3 || action === 2) {
-      io.print("수정을 취소했습니다.");
-      return;
+    const row = rows[Number(String(pick.value).slice(1))];
+    if (!row) continue;
+    const q = questionsFor(state.projectType).find((x) => x.id === row.id);
+    if (!q) continue;
+    io.print(`현재 값: ${row.answer}`);
+    const ans = await io.ask(q, { step: 1, total: 1 });
+    if (ans.kind === "value" || ans.kind === "unknown") {
+      applyAnswer(state, q, ans);
+      changed = true;
     }
-    await editOne(io, state);
   }
 }
 
