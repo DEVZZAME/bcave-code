@@ -253,24 +253,32 @@ function prompt(): void {
   });
 }
 
-function askYesNo(question: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      const lower = answer.trim().toLowerCase();
-      resolve(lower === "y" || lower === "yes" || lower === "");
-    });
-  });
+// 권한 확인 — 방향키(↑↓)·숫자·Enter 로 선택 (Esc=아니오)
+async function askYesNo(): Promise<boolean> {
+  console.log("  " + chalk.dim("실행할까요?"));
+  const idx = await showSelector(
+    [
+      { label: "예", dimLabel: "예" },
+      { label: "아니오", dimLabel: "아니오" },
+    ],
+    0,
+  );
+  return idx === 0; // Esc(-1) → 아니오
 }
 
-function askYesAlwaysNo(question: string): Promise<"yes" | "always" | "no"> {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      const lower = answer.trim().toLowerCase();
-      if (lower === "a" || lower === "always") resolve("always");
-      else if (lower === "n" || lower === "no") resolve("no");
-      else resolve("yes");
-    });
-  });
+async function askYesAlwaysNo(): Promise<"yes" | "always" | "no"> {
+  console.log("  " + chalk.dim("실행할까요?"));
+  const idx = await showSelector(
+    [
+      { label: "예 (한 번 실행)", dimLabel: "예 (한 번 실행)" },
+      { label: "항상 허용 (이 종류는 자동 승인)", dimLabel: "항상 허용 (이 종류는 자동 승인)" },
+      { label: "아니오", dimLabel: "아니오" },
+    ],
+    0,
+  );
+  if (idx === 1) return "always";
+  if (idx < 0 || idx === 2) return "no";
+  return "yes";
 }
 
 // ─── State ─────────────────────────────────────────────
@@ -757,11 +765,11 @@ async function processAgentEvents(gen: AsyncGenerator<AgentEvent>): Promise<void
         console.log("  " + chalk.yellow("⚡") + " " + chalk.bold(req.name) + chalk.dim(`(${argsStr})`));
 
         if (mode === "auto-approve") {
-          const answer = await askYesAlwaysNo("  " + chalk.dim("Allow? ") + chalk.dim("[Y/a/n] "));
+          const answer = await askYesAlwaysNo();
           if (answer === "no") { cm!.rejectToolCall(req.id); }
           else { cm!.approveToolCall(req.id); }
         } else {
-          const approved = await askYesNo("  " + chalk.dim("Allow? ") + chalk.dim("[Y/n] "));
+          const approved = await askYesNo();
           if (approved) { cm!.approveToolCall(req.id); }
           else { cm!.rejectToolCall(req.id); }
         }
