@@ -69,6 +69,6 @@ export interface WizardIO {
   ): Promise<Answer>;
   /** 최종 요약 후 행동 선택. 반환: 0=확정,1=수정,2=처음부터,3=취소 */
   finalAction(summary: string): Promise<number>;
-  /** 예/아니오 확인 (덮어쓰기 등). */
-  confirm(message: string): Promise<boolean>;
+  /** 예/아니오 확인 (덮어쓰기 등). defaultYes=true 면 '예'가 기본 선택. */
+  confirm(message: string, defaultYes?: boolean): Promise<boolean>;
 }

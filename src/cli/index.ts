@@ -548,9 +548,16 @@ const wizardIO: WizardIO = {
     const idx = await showSelector(items);
     return idx < 0 ? 3 : idx; // Esc → 취소
   },
-  async confirm(message: string): Promise<boolean> {
-    const a = (await askLine("  " + message + chalk.dim(" [y/N] "))).trim().toLowerCase();
-    return a === "y" || a === "yes";
+  async confirm(message: string, defaultYes = false): Promise<boolean> {
+    console.log("");
+    console.log("  " + message);
+    console.log("");
+    const items = [
+      { label: "예", dimLabel: "예" },
+      { label: "아니오", dimLabel: "아니오" },
+    ];
+    const idx = await showSelector(items, defaultYes ? 0 : 1);
+    return idx === 0; // Esc(-1) → 아니오
   },
 };
 
@@ -638,7 +645,7 @@ function showHelp(): void {
 async function offerBuild(cwd: string): Promise<void> {
   const prompt = buildPromptFor(cwd);
   if (!prompt) return;
-  const go = await wizardIO.confirm("정리된 내용으로 지금 바로 만들어드릴까요? (AI가 결과물을 생성합니다)");
+  const go = await wizardIO.confirm("정리된 내용으로 지금 바로 만들어드릴까요? (AI가 결과물을 생성합니다)", true);
   if (!go) {
     console.log(chalk.dim("  알겠습니다. 저장된 기획(.agent/kickstart.md)을 바탕으로 언제든 만들 수 있어요."));
     return;
@@ -701,7 +708,7 @@ async function handleSlashCommand(text: string): Promise<boolean> {
     // 인자 없음: 중단된 초안이 있으면 이어서 할지 물어봄
     let outcome;
     if (hasDraft(cwd)) {
-      const resume = await wizardIO.confirm("이어서 진행할 내용이 있습니다. 이어서 할까요? (아니오 = 새로 시작)");
+      const resume = await wizardIO.confirm("이어서 진행할 내용이 있습니다. 이어서 할까요? (아니오 = 새로 시작)", true);
       outcome = await runKickstart(wizardIO, cwd, { resume });
     } else {
       outcome = await runKickstart(wizardIO, cwd);
