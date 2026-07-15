@@ -186,16 +186,20 @@ function resolvePlaceholders(content: string): string {
   let dsId = "";
   let full = false;
   content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) => {
-    if (DS_FULL[id]) { dsId = id; full = true; return DS_FULL[id]; }
+    // DS_FULL 은 자리표시자 위치에 넣지 않고 </head> 직전에 주입(모델 오버라이드보다 뒤라 이긴다).
+    if (DS_FULL[id]) { dsId = id; full = true; return ""; }
     if (DS_STYLES[id]) { dsId = id; return DS_STYLES[id]; }
     return "";
   });
-  // 스캐폴드는 스트립 CSS 프로필에만 주입. DS_FULL 프로필은 원본 레이아웃이 이미 있음.
-  if (dsId && !full && DS_LAYOUT[dsId]) {
-    const scaffold = `<style>${DS_LAYOUT[dsId]}</style>`;
+  // 레이아웃이 항상 이기도록 </head> 직전에 주입:
+  //  - DS_FULL: 원본 전체 CSS(컨테이너 폭·nav·섹션 등 원본 그대로 유지)
+  //  - 그 외: 스캐폴드
+  const winCss = full ? DS_FULL[dsId] : dsId ? DS_LAYOUT[dsId] : "";
+  if (winCss) {
+    const style = `<style>${winCss}</style>`;
     content = content.includes("</head>")
-      ? content.replace("</head>", scaffold + "</head>")
-      : scaffold + content;
+      ? content.replace("</head>", style + "</head>")
+      : style + content;
   }
   // 원본 nav 마크업 · 토글/인터랙션 JS (완전 동일 접근)
   content = content.replace(/\{\{BCAVE_DS_NAV:([\w-]+)\}\}/g, (_m, id) => DS_NAV[id] ?? "");
