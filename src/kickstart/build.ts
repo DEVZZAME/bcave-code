@@ -8,14 +8,28 @@ import { BCAVE_BRAND } from "./brand.js";
 // 완전 동일(verbatim) 접근 지침: 디자인시스템 원본 nav·CSS·토글 JS 를 그대로 주입해 픽셀 동일하게.
 function dsUsageVerbatim(id: string): string {
   return (
-    "[디자인시스템 완전 동일 — 원본과 픽셀 동일하게, 텍스트만 교체]\n" +
-    `1) <head> <style> 안에 정확히 \`{{BCAVE_DS:${id}}}\` 한 줄 → 원본 전체 CSS 자동 주입(토큰·다크모드·호버·애니메이션·반응형·컴포넌트 모두 포함). 추가 CSS 는 꼭 필요한 것만.\n` +
-    `2) <body> 최상단에 정확히 \`{{BCAVE_DS_NAV:${id}}}\` 한 줄 → 원본 상단 GNB + 다크모드 토글 스위치가 그대로 주입된다(브랜드=회사로고, 링크=개요/분포/목록 → #overview/#charts/#table 스크롤). 이 nav 를 직접 만들지 마라.\n` +
-    "3) 본문은 원본 구조 그대로: <div class=\"container\"> 안에 여러 <section class=\"section\">…</section>. 각 섹션은 <p class=\"section-eyebrow\">라벨</p><h2 class=\"section-title\">제목</h2><p class=\"section-desc\">설명</p> 로 시작. 섹션 id 는 overview/charts/table.\n" +
-    "4) KPI·차트·표는 원본 컴포넌트로: 카드 <div class=\"card\">, 배치 <div class=\"grid grid-3\">(또는 grid-2/grid-4), 버튼 <button class=\"btn btn-primary\">/.btn-secondary. 색·간격은 원본 클래스만, 하드코딩 hex·인라인 색 금지.\n" +
-    `5) </body> 직전에 정확히 \`{{BCAVE_DS_JS:${id}}}\` 한 줄 → 다크모드 토글 등 인터랙션이 동작한다.\n` +
-    "6) 차트: <head> 에 <script>{{BCAVE_CHARTJS}}</script>. 캔버스는 <div style=\"position:relative;height:300px\"><canvas></canvas></div>, options responsive:true,maintainAspectRatio:false. 시간추이=line, 비교=bar.\n" +
-    "로고는 nav 에 이미 있으니 본문에 또 넣지 마라. 첫 섹션(#overview)에 큰 제목으로 시작."
+    "[이 디자인시스템을 100% 그대로 따라라 — 절대 규칙]\n" +
+    "★ 자체 레이아웃/CSS 를 새로 만들지 마라. **사이드바(aside)·자기만의 nav·자기만의 .container/.section/.card 정의 금지.** 아래 자리표시자와 원본 클래스만 써라. 어기면 실패다.\n" +
+    "★ 이 파일의 뼈대는 정확히 이 순서로:\n" +
+    "<!doctype html><html lang=\"ko\"><head>\n" +
+    " <meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>…</title>\n" +
+    " <script>{{BCAVE_CHARTJS}}</script>\n" +
+    ` <style>{{BCAVE_DS:${id}}}</style>   ← 원본 전체 CSS(토큰·다크모드·호버·반응형·컴포넌트) 자동 주입. 여기 외에 스타일을 새로 정의하지 마라(정 필요하면 아주 소량만).\n` +
+    "</head><body>\n" +
+    ` {{BCAVE_DS_NAV:${id}}}   ← 원본 상단 GNB + 다크모드 토글이 그대로 주입(브랜드=로고, 링크=개요/분포/목록). nav 를 직접 만들지 마라.\n` +
+    " <div class=\"container\">\n" +
+    "   <section id=\"overview\" class=\"section\"><p class=\"section-eyebrow\">라벨</p><h2 class=\"section-title\">고객 현황</h2><p class=\"section-desc\">설명</p>\n" +
+    "     <div class=\"grid grid-4\"><div class=\"card\">…KPI…</div>…</div></section>\n" +
+    "   <section id=\"charts\" class=\"section\"><p class=\"section-eyebrow\">Analytics</p><h2 class=\"section-title\">분포</h2>\n" +
+    "     <div class=\"grid grid-2\"><div class=\"card\"><div style=\"position:relative;height:300px\"><canvas></canvas></div></div>…</div></section>\n" +
+    "   <section id=\"table\" class=\"section\"><h2 class=\"section-title\">목록</h2><div class=\"card\">…표…</div></section>\n" +
+    " </div>\n" +
+    " <script>window.__DATA = {{BCAVE_DATA:데이터파일경로}};</script>   ← 전체 데이터 자동 주입(npm·스크립트 금지)\n" +
+    " <script> …window.__DATA 를 집계해 KPI·차트·표 렌더… </script>\n" +
+    ` {{BCAVE_DS_JS:${id}}}   ← 다크모드 토글 등 인터랙션\n` +
+    "</body></html>\n" +
+    "★ 컴포넌트는 원본 클래스만: 카드 .card, 배치 .grid.grid-2/.grid-3/.grid-4, 버튼 .btn.btn-primary/.btn-secondary, 배지 .badge 등. 하드코딩 hex·인라인 색·자체 그리드 금지.\n" +
+    "★ 로고는 nav 에 이미 있으니 본문에 또 넣지 마라. 차트: 시간추이=line, 비교=bar, options responsive:true,maintainAspectRatio:false."
   );
 }
 
@@ -127,18 +141,21 @@ export function generationPrompt(
   const label = LABELS[projectType] ?? "결과물";
   const isVisual = VISUAL_TYPES.has(projectType);
   const profile = designSystem ? DESIGN_PROFILES[designSystem] : undefined;
+  const isFull = !!(isVisual && designSystem && DS_FULL[designSystem]);
   const hasDs = !!(isVisual && designSystem && DS_CONTRACT[designSystem]);
-  const instr =
-    (INSTRUCTIONS[projectType] ?? INSTRUCTIONS.other) +
-    (isVisual ? "\n\n" + DESIGN_COMMON : "") +
-    (isVisual && profile ? "\n\n" + profile : "") +
-    (hasDs ? "\n\n" + DS_CONTRACT[designSystem!] + "\n\n" + dsUsage(designSystem!) : "") +
-    (isVisual ? "\n\n" + BCAVE_BRAND : "") +
-    (FONT_TYPES.has(projectType) ? PRETENDARD : "");
+  // DS_FULL(완전 동일) 프로필은 verbatim 지침만 — 옛 스캐폴드/사이드바 지침과 충돌 방지.
+  const instr = isFull
+    ? (INSTRUCTIONS[projectType] ?? INSTRUCTIONS.other) + "\n\n" + dsUsageVerbatim(designSystem!)
+    : (INSTRUCTIONS[projectType] ?? INSTRUCTIONS.other) +
+      (isVisual ? "\n\n" + DESIGN_COMMON : "") +
+      (isVisual && profile ? "\n\n" + profile : "") +
+      (hasDs ? "\n\n" + DS_CONTRACT[designSystem!] + "\n\n" + dsUsage(designSystem!) : "") +
+      (isVisual ? "\n\n" + BCAVE_BRAND : "") +
+      (FONT_TYPES.has(projectType) ? PRETENDARD : "");
   const refBlock =
     referenceFiles && referenceFiles.trim()
-      ? `\n\n[참고 파일]\n아래 경로의 파일을 read_file 도구로 **먼저 읽어** 내용·형식·데이터를 파악한 뒤 그것을 반영해 만들어. ` +
-        `엑셀·CSV 처럼 행이 많은 데이터 파일이면 몇 줄만 손으로 옮기지 말고(누락·왜곡 발생), 그 파일을 읽는 스크립트로 전체를 집계·반영해. 수치는 실제 계산값이어야 하고, 경로를 찾을 수 없으면 지어내지 말고 사용자에게 알려줘:\n${referenceFiles}`
+      ? `\n\n[참고 파일]\n아래 경로의 파일을 참고해 만들어. 엑셀·CSV 데이터는 손으로 옮기거나 스크립트를 쓰지 말고 ` +
+        `\`<script>window.__DATA = {{BCAVE_DATA:경로}};</script>\` 자리표시자로 전체를 주입한 뒤 브라우저 JS 로 집계해. 경로를 못 찾으면 지어내지 말고 알려줘:\n${referenceFiles}`
       : "";
   return (
     `아래는 사용자가 질문에 답해 정리한 "${label}" 기획 정보야. ` +
