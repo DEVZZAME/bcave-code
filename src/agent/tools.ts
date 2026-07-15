@@ -135,19 +135,25 @@ function truncate(text: string, max: number, why = "생략"): string {
 // 표 형태 스프레드시트 — 바이너리지만 CSV(텍스트)로 변환해 읽을 수 있다.
 const SPREADSHEET_EXT = new Set([".xlsx", ".xls", ".xlsm", ".xlsb", ".ods"]);
 
-/** 엑셀 등 스프레드시트를 시트별 CSV 텍스트로 변환. */
+/** 엑셀 등 스프레드시트를 시트별 CSV 텍스트로 변환 (행/열 수 표기). */
 function readSpreadsheet(filePath: string, displayPath: string): string {
   const wb = XLSX.read(fs.readFileSync(filePath), { type: "buffer", cellDates: true });
   const parts: string[] = [];
   for (const name of wb.SheetNames) {
-    const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false });
-    if (csv.trim()) parts.push(`# 시트: ${name}\n${csv}`);
+    const ws = wb.Sheets[name];
+    const range = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : null;
+    const rows = range ? range.e.r - range.s.r + 1 : 0;
+    const cols = range ? range.e.c - range.s.c + 1 : 0;
+    const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+    if (csv.trim()) parts.push(`# 시트: ${name} (약 ${rows}행 × ${cols}열)\n${csv}`);
   }
   const body = parts.join("\n\n") || "(빈 스프레드시트)";
-  return (
-    `[엑셀 파일을 표(CSV)로 변환해 읽었습니다: ${displayPath}]\n\n` +
-    truncate(body, MAX_READ_CHARS, "표가 큼(앞부분만)")
-  );
+  // 데이터가 커서 잘릴 경우: 눈으로 옮기지 말고 스크립트로 전체를 처리하도록 유도.
+  const header =
+    body.length > MAX_READ_CHARS
+      ? `[엑셀을 표(CSV)로 변환: ${displayPath} — 데이터가 커서 아래는 일부만 표시됩니다.\n전체를 빠짐없이 반영하려면 값을 손으로 옮기지 말고, 이 파일을 읽어 집계하는 스크립트로 처리하세요(엑셀은 xlsx 라이브러리 사용).]\n\n`
+      : `[엑셀 파일을 표(CSV)로 변환해 읽었습니다: ${displayPath}]\n\n`;
+  return header + truncate(body, MAX_READ_CHARS, "표가 큼(앞부분만)");
 }
 
 /** 텍스트로 보기 어려운 바이너리 데이터인지 판별 (NUL·제어문자·깨진문자 비율). */
