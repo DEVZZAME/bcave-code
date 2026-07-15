@@ -158,12 +158,25 @@ function readSpreadsheet(filePath: string, displayPath: string): string {
     if (csv.trim()) parts.push(`# 시트: ${name} (약 ${rows}행 × ${cols}열)\n${csv}`);
   }
   const body = parts.join("\n\n") || "(빈 스프레드시트)";
-  // 데이터가 커서 잘릴 경우: 눈으로 옮기지 말고 스크립트로 전체를 처리하도록 유도.
+  // 컬럼·값을 파악하는 용도. 전체 데이터를 결과물에 넣을 땐 손으로 옮기거나 스크립트를 쓰지 말고
+  // 자리표시자로 넣으세요: <script>window.__DATA = {{BCAVE_DATA:파일경로}};</script> (전체 JSON 자동 주입).
   const header =
-    body.length > MAX_READ_CHARS
-      ? `[엑셀을 표(CSV)로 변환: ${displayPath} — 데이터가 커서 아래는 일부만 표시됩니다.\n전체를 빠짐없이 반영하려면 값을 손으로 옮기지 말고, 이 파일을 읽어 집계하는 스크립트로 처리하세요(엑셀은 xlsx 라이브러리 사용).]\n\n`
-      : `[엑셀 파일을 표(CSV)로 변환해 읽었습니다: ${displayPath}]\n\n`;
+    `[엑셀 파일을 표(CSV)로 변환해 읽었습니다: ${displayPath}\n` +
+    `※ 컬럼·값 확인용입니다. 결과 HTML 에 전체 데이터를 넣을 땐 npm·스크립트 없이 ` +
+    `\`<script>window.__DATA = {{BCAVE_DATA:${displayPath}}};</script>\` 한 줄을 쓰면 전체 행이 JSON 배열로 자동 주입됩니다(각 행 = 컬럼명 키 객체).]\n\n`;
   return header + truncate(body, MAX_READ_CHARS, "표가 큼(앞부분만)");
+}
+
+/** 스프레드시트를 행 객체 JSON 배열로 (자리표시자 {{BCAVE_DATA}} 치환용). 날짜는 실제 날짜로 변환. */
+function spreadsheetToJSON(filePath: string, sheet?: string): string {
+  try {
+    const wb = XLSX.read(fs.readFileSync(filePath), { type: "buffer", cellDates: true });
+    const name = sheet && wb.Sheets[sheet] ? sheet : wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: null, raw: false });
+    return JSON.stringify(rows.slice(0, 100_000));
+  } catch {
+    return "[]";
+  }
 }
 
 /** 텍스트로 보기 어려운 바이너리 데이터인지 판별 (NUL·제어문자·깨진문자 비율). */
@@ -180,8 +193,13 @@ function looksBinary(text: string): boolean {
   return bad / sample.length > 0.1;
 }
 
-/** CI 로고·디자인시스템 CSS/nav/JS·Chart.js 자리표시자를 실제 리소스로 치환. */
-function resolvePlaceholders(content: string): string {
+/** CI 로고·디자인시스템 CSS/nav/JS·데이터·Chart.js 자리표시자를 실제 리소스로 치환. */
+function resolvePlaceholders(content: string, cwd: string): string {
+  // {{BCAVE_DATA:파일경로[#시트]}} → 전체 데이터 JSON (npm·스크립트 불필요, 토큰 0)
+  content = content.replace(/\{\{BCAVE_DATA:([^}]+)\}\}/g, (_m, spec) => {
+    const [rawPath, sheet] = String(spec).split("#");
+    return spreadsheetToJSON(path.resolve(cwd, rawPath.trim()), sheet?.trim());
+  });
   // {{BCAVE_DS:id}} → 디자인시스템 CSS. DS_FULL(원본 전체)이 있으면 완전 동일, 없으면 DS_STYLES.
   let dsId = "";
   let full = false;
@@ -233,7 +251,7 @@ async function resolvePlaceholdersInDir(cwd: string): Promise<void> {
       if (fs.statSync(full).size > 20_000_000) continue;
       const src = fs.readFileSync(full, "utf-8");
       if (!src.includes("{{BCAVE_")) continue; // 우리 자리표시자가 있는 파일만
-      const out = resolvePlaceholders(src);
+      const out = resolvePlaceholders(src, cwd);
       if (out !== src) fs.writeFileSync(full, out, "utf-8");
     } catch {
       /* skip */
@@ -276,7 +294,7 @@ export async function executeTool(
       case "write_file": {
         const filePath = path.resolve(cwd, args.path as string);
         // CI·디자인시스템·Chart.js 자리표시자 → 실제 리소스로 치환 (프롬프트 토큰 절약)
-        const content = resolvePlaceholders(args.content as string);
+        const content = resolvePlaceholders(args.content as string, cwd);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, content, "utf-8");
         return `File written: ${args.path}`;
