@@ -2,20 +2,35 @@
 // (프롬프트 문자열만 만드는 순수 로직 — 실제 LLM 호출은 CLI 쪽에서.)
 
 import { DESIGN_COMMON, DESIGN_PROFILES } from "./design-systems.js";
-import { DS_CONTRACT } from "./ds-styles.js";
+import { DS_CONTRACT, DS_SHAPE } from "./ds-styles.js";
 import { BCAVE_BRAND } from "./brand.js";
+
+// 프로필별 레이아웃 마크업 (GNB=상단내비 / side=좌측 사이드바). 원본 디자인시스템 구조에 맞춤.
+const LAYOUT_GNB =
+  "<div class=\"ds-app\">\n  <nav class=\"ds-nav\"><span class=\"ds-brand\"><img src=\"{{BCAVE_CI}}\" alt=\"B.CAVE\"></span>\n    <span class=\"ds-links\"><a href=\"#overview\" class=\"active\">개요</a><a href=\"#charts\">분포</a><a href=\"#table\">목록</a></span></nav>\n  <div class=\"ds-container\">\n    <p class=\"ds-eyebrow\">패션 CRM</p><h1 class=\"ds-title\">고객 현황</h1><p class=\"ds-sub\">한 줄 설명</p>\n    <section id=\"overview\" class=\"ds-section\"><div class=\"ds-kpis\">…KPI 카드(.card)…</div></section>\n    <section id=\"charts\" class=\"ds-section\"><p class=\"ds-eyebrow\">Analytics</p><h2 class=\"ds-sectitle\">분포 분석</h2>\n      <div class=\"ds-grid\"><div class=\"card\"><h3>제목</h3><div class=\"ds-chart\"><canvas></canvas></div></div>…</div></section>\n    <section id=\"table\" class=\"ds-section\"><h2 class=\"ds-sectitle\">목록</h2><div class=\"card\"><div class=\"ds-tablewrap\"><table>…</table></div></div></section>\n  </div>\n</div>";
+const LAYOUT_SIDE =
+  "<div class=\"ds-app\">\n  <aside class=\"ds-side\"><span class=\"ds-brand\"><img src=\"{{BCAVE_CI}}\" alt=\"B.CAVE\"></span>\n    <nav class=\"ds-links\"><a href=\"#overview\" class=\"active\">개요</a><a href=\"#charts\">분포</a><a href=\"#table\">목록</a></nav></aside>\n  <main class=\"ds-main\"><div class=\"ds-container\">\n    <p class=\"ds-eyebrow\">패션 CRM</p><h1 class=\"ds-title\">고객 현황</h1><p class=\"ds-sub\">한 줄 설명</p>\n    <section id=\"overview\" class=\"ds-section\"><div class=\"ds-kpis\">…KPI 카드(.card)…</div></section>\n    <section id=\"charts\" class=\"ds-section\"><h2 class=\"ds-sectitle\">분포 분석</h2>\n      <div class=\"ds-grid\"><div class=\"card\"><h3>제목</h3><div class=\"ds-chart\"><canvas></canvas></div></div>…</div></section>\n    <section id=\"table\" class=\"ds-section\"><h2 class=\"ds-sectitle\">목록</h2><div class=\"card\"><div class=\"ds-tablewrap\"><table>…</table></div></div></section>\n  </div></main>\n</div>";
 
 // 디자인시스템 CSS 를 자리표시자로 주입시키는 사용 지침 (실제 CSS 는 write_file 가 치환 — 프롬프트 토큰 절약).
 function dsUsage(id: string): string {
+  const shape = DS_SHAPE[id] === "side" ? "side" : "gnb";
+  const shapeDesc =
+    shape === "side"
+      ? "이 디자인시스템은 **좌측 사이드바** 레이아웃이다. 아래 구조를 그대로 써라(상단 GNB 로 바꾸지 마라):"
+      : "이 디자인시스템은 **상단 GNB(내비바)** 레이아웃이다. 아래 구조를 그대로 써라(사이드바로 바꾸지 마라):";
+  const markup = shape === "side" ? LAYOUT_SIDE : LAYOUT_GNB;
   return (
     "[디자인시스템 CSS 적용 — 반드시]\n" +
     `결과 HTML <head> 의 <style> 맨 앞에 정확히 \`{{BCAVE_DS:${id}}}\` 한 줄만 넣어라. ` +
-    "그 자리에 이 디자인시스템의 토큰·컴포넌트 CSS 가 자동으로 주입된다(직접 토큰을 재정의하거나 로고처럼 그리지 말 것). 이어서 이 화면 전용 레이아웃 CSS 만 덧붙여라.\n" +
-    "**레이아웃은 직접 짜지 말고 아래 스캐폴드 클래스를 그대로 써라**(사이드바가 좁아 글자가 세로로 쪼개지거나 요소가 겹쳐 클릭이 막히는 문제 방지):\n" +
-    "<div class=\"ds-app\">\n  <aside class=\"ds-sidebar\"><div class=\"ds-brand\"><img src=\"{{BCAVE_CI}}\" alt=\"B.CAVE\" style=\"height:22px\"></div>\n    <nav class=\"ds-nav\"><a href=\"#\" class=\"active\">개요</a><a href=\"#\">분포</a><a href=\"#\">목록</a></nav></aside>\n  <main class=\"ds-main\">\n    <div class=\"ds-topbar\"><div><h1 class=\"ds-title\">제목</h1><p class=\"ds-sub\">설명</p></div></div>\n    <div class=\"ds-kpis\">…KPI 카드(.card 또는 프로필 KPI 컴포넌트)…</div>\n    <div class=\"ds-grid\"><div class=\"card\"><h3>제목</h3><div class=\"ds-chart\"><canvas></canvas></div></div>…</div>\n    <div class=\"card\"><div class=\"ds-tablewrap\"><table>…</table></div></div>\n  </main>\n</div>\n" +
-    "**.ds-app/.ds-sidebar/.ds-nav/.ds-main/.ds-topbar/.ds-kpis/.ds-grid/.ds-chart 의 CSS(display·grid-template-columns·width 등)를 다시 정의하지 마라 — 레이아웃은 스캐폴드가 자동 처리한다. 미디어쿼리로 이 클래스를 건드리지도 마라.** " +
+    "그 자리에 이 디자인시스템의 토큰·컴포넌트·레이아웃 CSS 가 자동 주입된다(직접 토큰·레이아웃을 재정의하지 말 것). 이어서 이 화면 전용 CSS(카드 내부 등)만 덧붙여라.\n" +
+    shapeDesc +
+    "\n" +
+    markup +
+    "\n" +
+    "링크는 <a href=\"#섹션id\">(클릭 시 스크롤). 큰 제목·넉넉한 여백·eyebrow 라벨로 디자인시스템 느낌을 살려라. " +
+    "**.ds-app/.ds-nav/.ds-side/.ds-links/.ds-main/.ds-container/.ds-section/.ds-kpis/.ds-grid/.ds-chart 의 CSS(display·grid·width·position 등)를 다시 정의하거나 미디어쿼리로 건드리지 마라 — 레이아웃(형태·컨테이너 폭)은 스캐폴드가 원본 디자인시스템에 맞춰 처리한다.** " +
     "그 외 색·간격·모서리·글꼴은 통일 토큰(var(--ds-bg)/--ds-surface/--ds-text/--ds-text-2/--ds-border/--ds-accent/--ds-radius/--ds-space/--ds-font)만 쓰고, 버튼·뱃지·입력·배너 등은 위 계약 클래스를 쓴다. 하드코딩 hex 금지. " +
-    "차트: 시간 추이는 line/area, 항목 비교는 bar. 차트 컨테이너는 .ds-chart 로 높이를 고정하고 options 에 responsive:true,maintainAspectRatio:false 를 넣어라."
+    "차트: 시간 추이는 line/area, 항목 비교는 bar. 차트 컨테이너는 .ds-chart, options 에 responsive:true,maintainAspectRatio:false."
   );
 }
 

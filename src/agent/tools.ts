@@ -182,16 +182,16 @@ function looksBinary(text: string): boolean {
 function resolvePlaceholders(content: string): string {
   if (content.includes(BCAVE_CI)) content = content.split(BCAVE_CI).join(BCAVE_LOGO_DATA_URI);
   // {{BCAVE_DS:id}} → 프로필 디자인시스템 CSS(토큰+컴포넌트)
-  let usedDs = false;
+  let dsId = "";
   content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) => {
     if (!DS_STYLES[id]) return "";
-    usedDs = true;
+    dsId = id;
     return DS_STYLES[id];
   });
-  // 레이아웃 스캐폴드는 </head> 직전에 별도 <style> 로 주입 → 모델이 .ds-* 를 재정의해도
-  // 스캐폴드가 소스 순서상 뒤라 레이아웃(사이드바·그리드·간격)이 항상 이긴다.
-  if (usedDs) {
-    const scaffold = `<style>${DS_LAYOUT}</style>`;
+  // 프로필별 레이아웃 스캐폴드(GNB/사이드바·컨테이너 폭)를 </head> 직전에 별도 <style> 로 주입
+  // → 모델이 .ds-* 를 재정의해도 소스 순서상 뒤라 레이아웃이 항상 이긴다.
+  if (dsId && DS_LAYOUT[dsId]) {
+    const scaffold = `<style>${DS_LAYOUT[dsId]}</style>`;
     content = content.includes("</head>")
       ? content.replace("</head>", scaffold + "</head>")
       : scaffold + content;
