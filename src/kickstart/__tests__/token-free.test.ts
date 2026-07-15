@@ -7,7 +7,9 @@ describe("kickstart is token-free (no LLM / no network)", () => {
   it("source files call no LLM or network APIs", () => {
     const dir = path.join(process.cwd(), "src", "kickstart");
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
-    const banned = /\bfetch\b|openai|OpenAI|anthropic|Anthropic|https?:\/\/|node:https?|node:net/;
+    // 실제 "호출/임포트"를 잡는다. (프롬프트 텍스트에 들어가는 CDN URL 문자열은 호출이 아니므로 제외)
+    const banned =
+      /\bfetch\s*\(|new\s+(OpenAI|Anthropic)\b|from\s+["'](openai|@anthropic|axios|got|node-fetch)|require\(["'](openai|@anthropic|axios|got|node-fetch)|node:https?|node:net/;
     for (const f of files) {
       const src = fs.readFileSync(path.join(dir, f), "utf-8");
       expect(banned.test(src), `${f} 에 네트워크/LLM 호출이 없어야 합니다`).toBe(false);

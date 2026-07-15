@@ -286,6 +286,8 @@ export const COMMON_QUESTIONS: KickstartQuestion[] = [
     o("특정 기술을 사용해야 해요", "tech"), o("회사 디자인이나 규칙을 따라야 해요", "brand"),
     o("외부 인터넷을 사용할 수 없어요", "offline"), o("개인정보가 포함되어 있어요", "privacy"),
     o("예산 제한이 있어요", "budget"), o("직접 입력", "custom"), o("특별한 조건이 없어요", "none") ] },
+  { id: "referenceFiles", type: "text", optional: true, message: "참고해야 할 파일이 있나요? 있다면 파일 경로를 입력해주세요.",
+    description: "예: ./data/sales.csv, /Users/me/보고서.xlsx, ./old/index.html (여러 개면 쉼표로 구분, 없으면 그냥 Enter)" },
 ];
 
 export const SCHEMAS: Record<string, ProjectSchema> = {

@@ -251,5 +251,6 @@ export function buildPromptFor(cwd: string): string | null {
   if (!rec || !brief) return null;
   const req = (rec.requirements as Record<string, unknown>) ?? {};
   const ds = typeof req.designSystem === "string" ? req.designSystem : undefined;
-  return generationPrompt(String(rec.projectType ?? "other"), brief, ds);
+  const ref = typeof req.referenceFiles === "string" ? req.referenceFiles : undefined;
+  return generationPrompt(String(rec.projectType ?? "other"), brief, ds, ref);
 }
