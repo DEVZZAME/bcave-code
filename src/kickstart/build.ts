@@ -1,6 +1,17 @@
 // /kickstart 로 정리한 기획 정보를 실제 결과물 생성 프롬프트로 변환.
 // (프롬프트 문자열만 만드는 순수 로직 — 실제 LLM 호출은 CLI 쪽에서.)
 
+// 의도적 프론트엔드 디자인 가이드 (frontend-design 원칙을 자체 정리).
+// 기본 템플릿·AI 티를 피하고, 절제된 색·타이포 위계·여백으로 세련되게.
+const DESIGN_GUIDE =
+  "\n\n[디자인 원칙 — 기본 템플릿 느낌을 피하고 의도적으로]\n" +
+  "- 색: 목적에 맞는 절제된 팔레트(주색 1~2 + 중립 배경/글자). 과한 그라데이션·원색 남발 금지. 강조·상태(증가↑/감소↓)에만 색.\n" +
+  "- 타이포: 뚜렷한 크기 위계(핵심 숫자는 크게, 라벨은 작고 흐리게). 읽기 좋은 웹폰트(예: Pretendard/Inter).\n" +
+  "- 여백·정렬: 넉넉한 여백과 그리드 정렬로 깔끔하게. 카드는 부드러운 모서리 + 은은한 그림자.\n" +
+  "- 시각 위계: 가장 중요한 지표가 가장 크고 눈에 띄게. 한 화면에 과하지 않게.\n" +
+  "- 반응형: 모바일에서 카드/차트가 세로로 자연스럽게 쌓이도록.\n" +
+  "- 접근성: 충분한 명도 대비, 색만으로 정보 전달하지 않기(아이콘·라벨 병행).";
+
 // 유형별 "만드는 방법" 지시. 백엔드가 필요 없는 결과물은 프론트/파일 기반으로.
 const INSTRUCTIONS: Record<string, string> = {
   dashboard:
@@ -43,10 +54,15 @@ const LABELS: Record<string, string> = {
   other: "결과물",
 };
 
+// 화면 디자인이 중요한 유형 — 디자인 가이드를 덧붙인다.
+const VISUAL_TYPES = new Set(["dashboard", "service", "data_analysis", "presentation"]);
+
 /** 정리된 기획(사람이 읽는 마크다운 brief) + 유형으로 생성 프롬프트를 만든다. */
 export function generationPrompt(projectType: string, brief: string): string {
   const label = LABELS[projectType] ?? "결과물";
-  const instr = INSTRUCTIONS[projectType] ?? INSTRUCTIONS.other;
+  const instr =
+    (INSTRUCTIONS[projectType] ?? INSTRUCTIONS.other) +
+    (VISUAL_TYPES.has(projectType) ? DESIGN_GUIDE : "");
   return (
     `아래는 사용자가 질문에 답해 정리한 "${label}" 기획 정보야. ` +
     `이 정보를 바탕으로 **지금 실제 결과물을 만들어줘.** 추가 질문은 꼭 필요할 때만 최소로 하고, 정해지지 않은 부분은 합리적인 기본값으로 채워.\n\n` +
