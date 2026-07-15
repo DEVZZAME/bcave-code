@@ -48,12 +48,33 @@ const LABELS: Record<string, string> = {
 // 화면 디자인이 중요한 유형 — 디자인 가이드를 덧붙인다.
 const VISUAL_TYPES = new Set(["dashboard", "service", "data_analysis", "presentation"]);
 
-/** 정리된 기획(사람이 읽는 마크다운 brief) + 유형으로 생성 프롬프트를 만든다. */
-export function generationPrompt(projectType: string, brief: string): string {
+// 유명 디자인 시스템별 특징 (선택 시 생성 프롬프트에 주입).
+const DESIGN_SYSTEMS: Record<string, string> = {
+  apple:
+    "애플 Human Interface 스타일로: 넉넉한 여백, 깔끔한 산세리프(SF Pro/Pretendard 계열), 부드럽게 둥근 모서리, 무채색 배경 + 포인트 1색, 은은한 그림자·반투명(블러), 큼직하고 명료한 타이포. 미니멀하고 고급스럽게.",
+  material:
+    "구글 Material Design 스타일로: 선명한 브랜드 색과 엘리베이션(그림자) 위계, Roboto/Noto 계열, 명확한 컴포넌트(카드·칩·버튼), 8dp 그리드, 뚜렷한 상태 색. 직관적이고 활기차게.",
+  fluent:
+    "마이크로소프트 Fluent 스타일로: 차분한 색과 반투명(아크릴) 표면, Segoe/Pretendard 계열, 정돈된 밀도와 기업용 신뢰감. 절제되고 명료하게.",
+  minimal:
+    "모던 미니멀(Linear/Vercel 풍)로: 다크 또는 뉴트럴 배경, 얇은 경계선, 절제된 색 1~2, 정밀한 여백·타이포, 은은한 인터랙션. 세련되고 군더더기 없이.",
+  toss:
+    "토스 스타일로: 아주 깔끔한 흰 배경, 큼직한 숫자와 굵은 강조, 친근하고 둥근 요소, 파랑 포인트, 넉넉한 여백. 쉽고 신뢰감 있게.",
+  auto: "",
+};
+
+/** 정리된 기획(사람이 읽는 마크다운 brief) + 유형(+선택한 디자인 시스템)으로 생성 프롬프트를 만든다. */
+export function generationPrompt(
+  projectType: string,
+  brief: string,
+  designSystem?: string,
+): string {
   const label = LABELS[projectType] ?? "결과물";
+  const sys = designSystem && DESIGN_SYSTEMS[designSystem];
   const instr =
     (INSTRUCTIONS[projectType] ?? INSTRUCTIONS.other) +
-    (VISUAL_TYPES.has(projectType) ? "\n\n" + FRONTEND_DESIGN : "");
+    (VISUAL_TYPES.has(projectType) ? "\n\n" + FRONTEND_DESIGN : "") +
+    (sys ? "\n\n[디자인 시스템]\n" + sys : "");
   return (
     `아래는 사용자가 질문에 답해 정리한 "${label}" 기획 정보야. ` +
     `이 정보를 바탕으로 **지금 실제 결과물을 만들어줘.** 추가 질문은 꼭 필요할 때만 최소로 하고, 정해지지 않은 부분은 합리적인 기본값으로 채워.\n\n` +

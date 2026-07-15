@@ -249,5 +249,7 @@ export function buildPromptFor(cwd: string): string | null {
   const rec = store.loadFinal(cwd);
   const brief = store.loadFinalMarkdown(cwd);
   if (!rec || !brief) return null;
-  return generationPrompt(String(rec.projectType ?? "other"), brief);
+  const req = (rec.requirements as Record<string, unknown>) ?? {};
+  const ds = typeof req.designSystem === "string" ? req.designSystem : undefined;
+  return generationPrompt(String(rec.projectType ?? "other"), brief, ds);
 }

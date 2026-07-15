@@ -297,11 +297,30 @@ export function getSchema(type: string): ProjectSchema | null {
   return SCHEMAS[type] ?? null;
 }
 
-/** 유형별 질문 + 공통 질문(스키마에 이미 있는 id 는 제외해 중복 방지). */
+// 화면 디자인이 중요한 유형 — 디자인 시스템 선택 질문을 끼운다.
+const VISUAL = new Set(["dashboard", "service", "presentation", "data_analysis"]);
+
+/** 유명 디자인 시스템 선택 (토큰 0). 선택값은 생성 프롬프트에 특징으로 주입된다. */
+export const DESIGN_SYSTEM_Q: KickstartQuestion = {
+  id: "designSystem",
+  type: "single_select",
+  message: "어떤 디자인 스타일로 만들까요?",
+  options: [
+    o("애플 (깔끔·넉넉한 여백·부드러운 곡선)", "apple"),
+    o("구글 머티리얼 (선명한 색·그림자·직관적)", "material"),
+    o("마이크로소프트 플루언트 (차분·기업용·정돈)", "fluent"),
+    o("모던 미니멀 (Linear/Vercel 풍·절제)", "minimal"),
+    o("토스 (큰 숫자·친근·아주 깔끔)", "toss"),
+    o("알아서 잘 (기획에 맞게)", "auto"),
+  ],
+};
+
+/** 유형별 질문 + (시각 유형이면) 디자인 시스템 + 공통 질문(중복 id 제외). */
 export function flowQuestions(type: string): KickstartQuestion[] {
   const schema = getSchema(type);
   if (!schema) return [];
   const ids = new Set(schema.questions.map((q) => q.id));
+  const extra = VISUAL.has(type) && !ids.has("designSystem") ? [DESIGN_SYSTEM_Q] : [];
   const common = COMMON_QUESTIONS.filter((q) => !ids.has(q.id));
-  return [...schema.questions, ...common];
+  return [...schema.questions, ...extra, ...common];
 }
