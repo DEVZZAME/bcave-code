@@ -16,6 +16,9 @@ import {
 } from "../kickstart/index.js";
 import type { WizardIO, Answer, KickstartQuestion } from "../kickstart/types.js";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import nodePath from "node:path";
 
 // ─── CLI Args ──────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -51,6 +54,7 @@ if (args.includes("--help") || args.includes("-h")) {
   ${chalk.bold("Commands")}
     login                              사내 계정으로 로그인
     logout                             로그아웃
+    update                             최신 버전으로 업데이트
 
   ${chalk.bold("Options")}
     --hub-url <url>                    HUB 주소 지정 (예: http://hub.bcave.internal)
@@ -69,10 +73,10 @@ const nonFlagArgs = args.filter((a, i) => {
   return true;
 });
 
-// 서브커맨드: `bcave login` / `bcave logout`
-let subcommand: "login" | "logout" | null = null;
-if (nonFlagArgs[0] === "login" || nonFlagArgs[0] === "logout") {
-  subcommand = nonFlagArgs.shift() as "login" | "logout";
+// 서브커맨드: `bcave login` / `bcave logout` / `bcave update`
+let subcommand: "login" | "logout" | "update" | null = null;
+if (["login", "logout", "update"].includes(nonFlagArgs[0])) {
+  subcommand = nonFlagArgs.shift() as "login" | "logout" | "update";
 }
 if (nonFlagArgs.length > 0) {
   initialPrompt = nonFlagArgs.join(" ");
@@ -251,6 +255,27 @@ function prompt(): void {
   rl.question(`${modeTag} ${chalk.dim(cwd)} ${chalk.bold(">")} `, (answer) => {
     handleInput(answer);
   });
+}
+
+// 툴 실행을 사용자 친화적 한 줄 상태로 (원문 덤프 대신). 파일명·명령만 짧게.
+function toolStatus(name: string, args: Record<string, unknown>): string {
+  const base = (s: string) => {
+    const b = (s.split("/").pop() || s).trim();
+    return b.length > 42 ? b.slice(0, 42) + "…" : b;
+  };
+  const path = typeof args.path === "string" ? args.path : "";
+  const tgt = (s: string) => (s ? "  " + chalk.dim(base(s)) : "");
+  switch (name) {
+    case "read_file": return "파일 읽는 중" + tgt(path);
+    case "write_file": return "파일 작성 중" + tgt(path);
+    case "list_files": return "폴더 살펴보는 중" + tgt(path);
+    case "search_files": return "검색 중";
+    case "shell_exec": {
+      const c = String(args.command ?? "").replace(/\s+/g, " ").trim();
+      return "작업 중" + (c ? "  " + chalk.dim(c.length > 46 ? c.slice(0, 46) + "…" : c) : "");
+    }
+    default: return name;
+  }
 }
 
 // 권한 확인 — 방향키(↑↓)·숫자·Enter 로 선택 (Esc=아니오)
@@ -635,6 +660,51 @@ async function doLogout(): Promise<void> {
   console.log(chalk.green("  ✓ 로그아웃되었습니다."));
 }
 
+// ─── 버전 체크 / 업데이트 ──────────────────────────────
+const REPO_URL = "https://github.com/DEVZZAME/bcave-agent.git";
+
+function installDir(): string {
+  // dist/cli/index.js → 저장소 루트(../../)
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  return nodePath.resolve(here, "..", "..");
+}
+
+/** 설치본 커밋과 GitHub master 최신 커밋을 비교. 새 버전이 있으면 true. */
+function checkForUpdate(): boolean {
+  try {
+    const dir = installDir();
+    const opt = { cwd: dir, timeout: 3000, stdio: "pipe" as const };
+    const local = execSync("git rev-parse HEAD", opt).toString().trim();
+    const remote = execSync(`git ls-remote ${REPO_URL} refs/heads/master`, opt)
+      .toString()
+      .trim()
+      .split(/\s+/)[0];
+    return !!local && !!remote && local !== remote;
+  } catch {
+    return false;
+  }
+}
+
+async function doUpdate(): Promise<void> {
+  const dir = installDir();
+  const run = (cmd: string, timeout: number) => execSync(cmd, { cwd: dir, stdio: "ignore", timeout });
+  console.log("");
+  try {
+    console.log("  " + chalk.cyan("▸") + " 최신 버전을 받는 중…");
+    run("git fetch --depth 1 origin master", 60000);
+    run("git reset --hard origin/master", 20000);
+    console.log("  " + chalk.cyan("▸") + " 의존성 설치…");
+    run("npm install --silent", 300000);
+    console.log("  " + chalk.cyan("▸") + " 빌드…");
+    run("npm run build --silent", 180000);
+    console.log("  " + chalk.green("✓ 최신 버전으로 업데이트했습니다.") + chalk.dim("  bcave 를 다시 실행하세요."));
+  } catch (e) {
+    console.log("  " + chalk.red("✗ 업데이트 실패: ") + chalk.dim((e as Error).message.split("\n")[0]));
+    console.log("  " + chalk.dim("  설치 명령을 다시 실행해 보세요."));
+  }
+  console.log("");
+}
+
 // ─── Command Handlers ──────────────────────────────────
 function showHelp(): void {
   console.log("");
@@ -757,12 +827,7 @@ async function processAgentEvents(gen: AsyncGenerator<AgentEvent>): Promise<void
 
       case "tool_call": {
         const req = event.request;
-        const argsStr = Object.entries(req.args)
-          .map(([k, v]) => `${k}=${typeof v === "string" && v.length > 60 ? v.slice(0, 60) + "…" : v}`)
-          .join(", ");
-
-        console.log("  " + chalk.dim("─"));
-        console.log("  " + chalk.yellow("⚡") + " " + chalk.bold(req.name) + chalk.dim(`(${argsStr})`));
+        console.log("  " + chalk.cyan("⚡") + " " + toolStatus(req.name, req.args));
 
         if (mode === "auto-approve") {
           const answer = await askYesAlwaysNo();
@@ -777,21 +842,13 @@ async function processAgentEvents(gen: AsyncGenerator<AgentEvent>): Promise<void
       }
 
       case "tool_result": {
-        const preview = event.result.length > 300
-          ? event.result.slice(0, 300) + "…"
-          : event.result;
-        const rLines = preview.split("\n");
-        if (rLines.length <= 5) {
-          for (const l of rLines) {
-            console.log("  " + chalk.dim(l));
-          }
-        } else {
-          for (const l of rLines.slice(0, 4)) {
-            console.log("  " + chalk.dim(l));
-          }
-          console.log("  " + chalk.dim(`… (${rLines.length - 4} more lines)`));
+        // 원문(파일 내용·검색 결과·CSV 등)은 사용자에게 표시하지 않는다.
+        // 실패했을 때만 짧게 한 줄 알려준다.
+        const r = (event.result || "").trim();
+        if (/^(Error|Exit code|Invalid regular expression|\[바이너리)/.test(r)) {
+          const first = r.split("\n")[0].slice(0, 110);
+          console.log("    " + chalk.yellow("⚠ ") + chalk.dim(first));
         }
-        console.log("  " + chalk.dim("─"));
         break;
       }
 
@@ -915,9 +972,20 @@ async function main(): Promise<void> {
   console.log("");
 
   // 서브커맨드 처리
+  if (subcommand === "update") {
+    await doUpdate();
+    process.exit(0);
+  }
+
   if (subcommand === "logout") {
     await doLogout();
     process.exit(0);
+  }
+
+  // 새 버전 알림 (설치본 vs GitHub 최신)
+  if (checkForUpdate()) {
+    console.log("  " + chalk.yellow("● 새 버전이 있습니다.") + chalk.dim("   bcave update  로 업데이트하세요."));
+    console.log("");
   }
 
   if (subcommand === "login") {
