@@ -1,12 +1,20 @@
 #!/bin/bash
 set -e
 
-echo ""
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║        BCave CLI 설치 스크립트         ║"
-echo "  ║   OpenAI GPT-4 기반 코딩 에이전트      ║"
-echo "  ╚══════════════════════════════════════╝"
-echo ""
+# ── 색상 (미지원 터미널이면 무시됨) ──
+if [ -t 1 ]; then
+    B='\033[1m'; C='\033[36m'; G='\033[32m'; Y='\033[33m'; D='\033[2m'; R='\033[0m'
+else
+    B=''; C=''; G=''; Y=''; D=''; R=''
+fi
+step() { printf "  ${C}▸${R} %s\n" "$1"; }
+ok()   { printf "  ${G}✓${R} %s\n" "$1"; }
+
+printf "\n"
+printf "  ${B}${C}B.CAVE${R} ${B}AGENT${R}\n"
+printf "  ${C}────────────────────────────${R}\n"
+printf "  ${D}사내 AI 코딩 에이전트 · 사내 계정 로그인${R}\n"
+printf "\n"
 
 # Node.js 확인
 if ! command -v node &> /dev/null; then
@@ -21,7 +29,7 @@ if [ "$NODE_VERSION" -lt 18 ]; then
     exit 1
 fi
 
-echo "✅ Node.js $(node -v) 확인"
+ok "Node.js $(node -v)"
 
 # 설치 경로
 INSTALL_DIR="$HOME/.bcave-cli"
@@ -29,19 +37,19 @@ BIN_DIR="$HOME/.local/bin"
 
 # 기존 설치 제거
 if [ -d "$INSTALL_DIR" ]; then
-    echo "🔄 기존 설치를 업데이트합니다..."
+    step "기존 설치 업데이트"
     rm -rf "$INSTALL_DIR"
 fi
 
 # 클론
-echo "📦 BCave CLI를 다운로드합니다..."
-git clone --depth 1 https://github.com/DEVZZAME/bcave-agent.git "$INSTALL_DIR"
+step "다운로드"
+git clone --depth 1 -q https://github.com/DEVZZAME/bcave-agent.git "$INSTALL_DIR"
 
 # 설치 + 빌드
 cd "$INSTALL_DIR"
-echo "📦 의존성을 설치합니다..."
+step "의존성 설치 (1~2분 걸릴 수 있어요)"
 npm install --silent
-echo "🔨 빌드 중..."
+step "빌드"
 npm run build --silent
 
 # 실행 권한 부여
@@ -82,14 +90,10 @@ fi
 # 현재 세션에도 즉시 적용
 export PATH="$HOME/.local/bin:$PATH"
 
-echo ""
-echo "✅ BCave CLI 설치 완료!"
-echo ""
-echo "  다음 단계:"
-echo "    1. 터미널을 새로 열어주세요."
-echo ""
-echo "    2. 실행:"
-echo "       bcave"
-echo ""
-echo "       (첫 실행 시 API 키를 직접 입력할 수 있습니다)"
-echo ""
+printf "\n"
+printf "  ${G}${B}✓ 설치 완료!${R}\n\n"
+printf "  ${B}다음 단계${R}\n"
+printf "    ${C}1.${R} 터미널을 ${B}새로${R} 열기\n"
+printf "    ${C}2.${R} ${B}bcave${R} 입력 후 실행\n"
+printf "    ${C}3.${R} 사내 ${B}이메일 / 비밀번호${R}로 로그인\n\n"
+printf "  ${D}로그인이 안 되면 관리자에게 BCAVE_CODE 승인을 요청하세요.${R}\n\n"

@@ -7,6 +7,9 @@ export class PermissionManager {
 
   constructor(mode: PermissionMode) {
     this.mode = mode;
+    // Auto 모드: 읽기 전용(read/list/search)은 안전하므로 처음부터 자동 승인.
+    // 쓰기·실행은 종류별로 처음 한 번만 확인.
+    if (mode === "auto-approve") this.approved.add("file_read");
   }
 
   needsApproval(category: PermissionCategory): boolean {
