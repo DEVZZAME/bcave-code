@@ -6,6 +6,8 @@ import { ConversationManager, type AgentEvent, type ToolCallRequest } from "../a
 import { PermissionManager, type PermissionMode } from "../agent/permissions.js";
 import type { BcaveConfig } from "../config/config.js";
 import { hubLogin, hubLogout, hubListModels, hubUsage, type HubModel } from "../auth/hub.js";
+import { buildDashboard, TEMPLATES } from "../dashboard/engine.js";
+import { executeTool } from "../agent/tools.js";
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -92,6 +94,7 @@ function cycleMode(): void {
 
 // ─── Slash Commands ────────────────────────────────────
 const COMMANDS = [
+  { name: "/dashboard", desc: "데이터 파일로 대시보드 생성 (디자인시스템 템플릿)" },
   { name: "/model", desc: "모델 선택" },
   { name: "/usage", desc: "사용량/한도 확인" },
   { name: "/login", desc: "사내 계정 로그인" },
@@ -650,6 +653,68 @@ function showHelp(): void {
   console.log("");
 }
 
+// /dashboard — 데이터 파일 + 템플릿(디자인시스템)으로 결정론적 대시보드 생성 (LLM 미사용).
+async function dashboardCommand(): Promise<void> {
+  console.log("");
+  console.log("  " + chalk.bold("데이터 대시보드 만들기"));
+  console.log("  " + chalk.dim("데이터를 코드가 분석해 디자인시스템 템플릿으로 조립합니다 (토큰 0)."));
+  console.log("");
+  let file = (await askLine(chalk.dim("  데이터 파일 경로 (엑셀/CSV) > "))).trim();
+  if (!file) {
+    console.log(chalk.dim("  취소했습니다."));
+    return;
+  }
+  file = file.replace(/^['"]|['"]$/g, "").replace(/^~/, process.env.HOME ?? "~");
+  if (!nodePath.isAbsolute(file)) file = nodePath.resolve(process.cwd(), file);
+  if (!fs.existsSync(file)) {
+    console.log(chalk.red("  파일을 찾을 수 없습니다: ") + file);
+    return;
+  }
+
+  // 템플릿 선택 (현재 template1 하나 — 여러 개면 선택 UI)
+  const templateIds = Object.keys(TEMPLATES);
+  let templateId = templateIds[0];
+  if (templateIds.length > 1) {
+    console.log("");
+    console.log("  " + chalk.bold("어떤 템플릿으로 만들까요?"));
+    const idx = await showSelector(
+      templateIds.map((id) => ({ label: TEMPLATES[id].label, dimLabel: TEMPLATES[id].label })),
+      0,
+    );
+    if (idx < 0) {
+      console.log(chalk.dim("  취소했습니다."));
+      return;
+    }
+    templateId = templateIds[idx];
+  }
+  console.log("  " + chalk.cyan("템플릿: ") + TEMPLATES[templateId].label);
+
+  try {
+    const { html, sheet, rowCount, spec } = buildDashboard(file, templateId);
+    if (!rowCount) {
+      console.log(chalk.red("  데이터가 비어 있습니다: ") + file);
+      return;
+    }
+    console.log(
+      chalk.dim(
+        `  분석: ${rowCount.toLocaleString("ko-KR")}행 · 시트 "${sheet}" · KPI ${spec.kpis.length}개 · 차트 ${spec.charts.length}개${spec.ranking ? " · 랭킹 1개" : ""}`,
+      ),
+    );
+    const title = nodePath.basename(file, nodePath.extname(file));
+    const outPath = nodePath.join(nodePath.dirname(file), `${title}-dashboard.html`);
+    const res = await executeTool("write_file", { path: outPath, content: html }, process.cwd());
+    const kb = fs.existsSync(outPath) ? Math.round(fs.statSync(outPath).size / 1024) : 0;
+    if (res.includes("검토 통과") || !res.includes("⚠")) {
+      console.log(chalk.green("  ✓ 완성: ") + outPath + chalk.dim(` (${kb}KB, 검토 통과)`));
+    } else {
+      console.log(chalk.yellow("  ⚠ 생성했지만 검토 경고: ") + outPath);
+      console.log(chalk.dim("    " + res.split("\n").slice(1, 3).join(" ")));
+    }
+  } catch (e) {
+    console.log(chalk.red("  대시보드 생성 실패: ") + (e as Error).message);
+  }
+}
+
 async function handleSlashCommand(text: string): Promise<boolean> {
   const trimmed = text.trim();
 
@@ -684,6 +749,9 @@ async function handleSlashCommand(text: string): Promise<boolean> {
   }
 
   if (trimmed === "/mode") { cycleMode(); return true; }
+
+  // /dashboard — 데이터 파일로 대시보드 생성 (디자인시스템 템플릿)
+  if (trimmed === "/dashboard") { await dashboardCommand(); return true; }
 
   // Only treat as unknown command if it looks like a slash command, not a file path
   if (trimmed.startsWith("/") && /^\/[a-z-]+$/i.test(trimmed.split(" ")[0]) && !trimmed.includes("/", 1)) {
