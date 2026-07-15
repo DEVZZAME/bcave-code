@@ -214,7 +214,9 @@ function resolvePlaceholders(content: string, cwd: string): string {
   //  - 그 외: 스캐폴드
   const winCss = full ? DS_FULL[dsId] : dsId ? DS_LAYOUT[dsId] : "";
   if (winCss) {
-    const style = `<style>${winCss}</style>`;
+    // 한글은 기본적으로 글자 단위로 줄바꿈되어 옆 공간이 있어도 한 글자가 아래로 떨어진다.
+    // word-break:keep-all 로 단어 단위 줄바꿈(자연스러운 한국어 줄바꿈).
+    const style = `<style>${winCss}\n:where(body){word-break:keep-all;overflow-wrap:break-word}</style>`;
     content = content.includes("</head>")
       ? content.replace("</head>", style + "</head>")
       : style + content;
