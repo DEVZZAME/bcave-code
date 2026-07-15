@@ -56,16 +56,17 @@ const LABELS: Record<string, string> = {
 // 화면 디자인이 중요한 유형 — 디자인 가이드를 덧붙인다.
 const VISUAL_TYPES = new Set(["dashboard", "service", "data_analysis", "presentation"]);
 
-// 글꼴을 지정할 수 있는 유형 (화면 + 문서/발표) — Pretendard 사용.
+// 글꼴을 지정할 수 있는 유형 (화면 + 문서/발표).
 const FONT_TYPES = new Set([...VISUAL_TYPES, "document"]);
 
-// 모든 결과물의 기본 글꼴은 Pretendard.
+// 글꼴 규칙: 선택한 프로필의 실제 글꼴 스택을 우선하고, Pretendard 를 한글 폴백으로 로드.
 const PRETENDARD =
-  "\n\n[글꼴]\n모든 글꼴은 **Pretendard**를 사용해. " +
-  "웹(HTML) 결과물이면 <head> 에 " +
-  "`<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/orioncactus/pretendard@latest/dist/web/static/pretendard.min.css\">` 를 넣고 " +
-  "`font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;` 로 지정해. " +
-  "PPT·문서 등 웹이 아니면 글꼴을 Pretendard 로(설치돼 있지 않으면 유사한 산세리프로 대체) 지정해.";
+  "\n\n[글꼴]\n" +
+  "웹(HTML) 결과물이면 <head> 에 Pretendard 를 CDN 으로 로드해: " +
+  "`<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/orioncactus/pretendard@latest/dist/web/static/pretendard.min.css\">`. " +
+  "**글꼴은 위에서 선택한 디자인 프로필이 지정한 font-family 스택을 그대로 사용**해(예: Apple=-apple-system·SF Pro…, MS=Segoe UI…, 스택 끝에 Pretendard 폴백 포함). " +
+  "프로필이 없으면 `font-family:'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif;`. " +
+  "PPT·문서 등 웹이 아니면 프로필 글꼴(없으면 Pretendard)로 지정.";
 
 
 /** 정리된 기획(사람이 읽는 마크다운 brief) + 유형(+디자인 시스템, 참고 파일)으로 생성 프롬프트를 만든다. */
