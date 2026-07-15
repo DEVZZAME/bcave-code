@@ -3,8 +3,6 @@ import path from "node:path";
 import { exec } from "node:child_process";
 import { glob } from "glob";
 import XLSX from "xlsx";
-import { BCAVE_CI, BCAVE_LOGO_DATA_URI } from "../kickstart/brand.js";
-import { DS_STYLES, DS_LAYOUT, DS_FULL, DS_NAV, DS_JS } from "../kickstart/ds-styles.js";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
 import type { PermissionCategory } from "./permissions.js";
 
@@ -193,39 +191,13 @@ function looksBinary(text: string): boolean {
   return bad / sample.length > 0.1;
 }
 
-/** CI 로고·디자인시스템 CSS/nav/JS·데이터·Chart.js 자리표시자를 실제 리소스로 치환. */
+/** 데이터·Chart.js 자리표시자를 실제 리소스로 치환. */
 function resolvePlaceholders(content: string, cwd: string): string {
   // {{BCAVE_DATA:파일경로[#시트]}} → 전체 데이터 JSON (npm·스크립트 불필요, 토큰 0)
   content = content.replace(/\{\{BCAVE_DATA:([^}]+)\}\}/g, (_m, spec) => {
     const [rawPath, sheet] = String(spec).split("#");
     return spreadsheetToJSON(path.resolve(cwd, rawPath.trim()), sheet?.trim());
   });
-  // {{BCAVE_DS:id}} → 디자인시스템 CSS. DS_FULL(원본 전체)이 있으면 완전 동일, 없으면 DS_STYLES.
-  let dsId = "";
-  let full = false;
-  content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) => {
-    // DS_FULL 은 자리표시자 위치에 넣지 않고 </head> 직전에 주입(모델 오버라이드보다 뒤라 이긴다).
-    if (DS_FULL[id]) { dsId = id; full = true; return ""; }
-    if (DS_STYLES[id]) { dsId = id; return DS_STYLES[id]; }
-    return "";
-  });
-  // 레이아웃이 항상 이기도록 </head> 직전에 주입:
-  //  - DS_FULL: 원본 전체 CSS(컨테이너 폭·nav·섹션 등 원본 그대로 유지)
-  //  - 그 외: 스캐폴드
-  const winCss = full ? DS_FULL[dsId] : dsId ? DS_LAYOUT[dsId] : "";
-  if (winCss) {
-    // 한글은 기본적으로 글자 단위로 줄바꿈되어 옆 공간이 있어도 한 글자가 아래로 떨어진다.
-    // word-break:keep-all 로 단어 단위 줄바꿈(자연스러운 한국어 줄바꿈).
-    const style = `<style>${winCss}\n:where(body){word-break:keep-all;overflow-wrap:break-word}</style>`;
-    content = content.includes("</head>")
-      ? content.replace("</head>", style + "</head>")
-      : style + content;
-  }
-  // 원본 nav 마크업 · 토글/인터랙션 JS (완전 동일 접근)
-  content = content.replace(/\{\{BCAVE_DS_NAV:([\w-]+)\}\}/g, (_m, id) => DS_NAV[id] ?? "");
-  content = content.replace(/\{\{BCAVE_DS_JS:([\w-]+)\}\}/g, (_m, id) =>
-    DS_JS[id] ? `<script>${DS_JS[id]}</script>` : "",
-  );
   // Chart.js 자리표시자·CDN <script> → 인라인 소스(+기본값). 완전한 단일 파일·오프라인 가능.
   if (content.includes("{{BCAVE_CHARTJS}}")) {
     content = content.split("{{BCAVE_CHARTJS}}").join(CHARTJS_SOURCE + CHARTJS_DEFAULTS);
@@ -234,8 +206,6 @@ function resolvePlaceholders(content: string, cwd: string): string {
     /<script\b[^>]*\bsrc="[^"]*chart[^"]*"[^>]*>\s*<\/script>/gi,
     CHARTJS_INLINE,
   );
-  // CI 로고는 마지막에 치환 → 모델 마크업 + 주입된 nav 안의 {{BCAVE_CI}} 모두 처리
-  if (content.includes(BCAVE_CI)) content = content.split(BCAVE_CI).join(BCAVE_LOGO_DATA_URI);
   return content;
 }
 
@@ -335,7 +305,7 @@ export async function executeTool(
       }
       case "write_file": {
         const filePath = path.resolve(cwd, args.path as string);
-        // CI·디자인시스템·데이터·Chart.js 자리표시자 → 실제 리소스로 치환 (프롬프트 토큰 절약)
+        // 데이터·Chart.js 자리표시자 → 실제 리소스로 치환 (프롬프트 토큰 절약)
         const content = resolvePlaceholders(args.content as string, cwd);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, content, "utf-8");
