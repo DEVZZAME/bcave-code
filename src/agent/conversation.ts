@@ -105,6 +105,10 @@ export class ConversationManager {
   async *run(userMessage: string): AsyncGenerator<AgentEvent> {
     this.messages.push({ role: "user", content: userMessage });
 
+    // 같은 텍스트가 연속으로 출력되는 중복 방지 (모델이 도구 호출 전후로
+    // 동일 인사/질문을 반복하는 경우 화면에 두 번 찍히던 문제).
+    let lastText = "";
+
     try {
       while (true) {
         this.trimHistory();
@@ -119,8 +123,10 @@ export class ConversationManager {
 
         const { message } = choice;
 
-        if (message.content) {
-          yield { type: "text", content: message.content };
+        const text = message.content?.trim() ?? "";
+        if (text && text !== lastText) {
+          lastText = text;
+          yield { type: "text", content: message.content as string };
         }
 
         if (!message.tool_calls || message.tool_calls.length === 0) {
