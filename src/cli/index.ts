@@ -127,6 +127,33 @@ interface SelectorItem {
   dimLabel: string;
 }
 
+// 한글·CJK·전각 문자는 터미널에서 2칸을 차지한다. 표시 폭 기준으로 잘라야 줄바꿈이 안 생긴다.
+function charWidth(cp: number): number {
+  return (cp >= 0x1100 &&
+    (cp <= 0x115f || cp === 0x2329 || cp === 0x232a ||
+      (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
+      (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
+      (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
+      (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff)))
+    ? 2 : 1;
+}
+function dispWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) w += charWidth(ch.codePointAt(0)!);
+  return w;
+}
+function truncWidth(s: string, maxW: number): string {
+  if (maxW <= 1) return "";
+  let w = 0, out = "";
+  for (const ch of s) {
+    const cw = charWidth(ch.codePointAt(0)!);
+    if (w + cw > maxW - 1) return out + "…";
+    w += cw;
+    out += ch;
+  }
+  return out;
+}
+
 async function showSelector(items: SelectorItem[], initialIndex = 0): Promise<number> {
   return new Promise((resolve) => {
     selectorActive = true;
@@ -135,8 +162,7 @@ async function showSelector(items: SelectorItem[], initialIndex = 0): Promise<nu
 
     const cols = () => (process.stdout.columns || 80) - 1;
     function truncate(s: string, max: number): string {
-      if (max <= 1) return "";
-      return s.length > max ? s.slice(0, max - 1) + "…" : s;
+      return truncWidth(s, max);
     }
     // 각 항목을 터미널 폭 1줄로 렌더 (줄바꿈 방지 → 커서 계산이 어긋나지 않음)
     function lineText(i: number): string {
@@ -528,7 +554,7 @@ function wizardSelect(
     const count = options.length;
     const totalLines = count + 1; // 옵션들 + 안내줄
     const cols = () => (process.stdout.columns || 80) - 1;
-    const trunc = (s: string, m: number) => (s.length > m ? s.slice(0, Math.max(1, m - 1)) + "…" : s);
+    const trunc = (s: string, m: number) => truncWidth(s, m);
     const footer = multi
       ? "↑↓ 이동 · Space 선택 · Enter 확정 · ← 이전 · Esc 취소"
       : "↑↓ 이동 · Enter 선택 · 숫자 · ← 이전 · Esc 취소";
@@ -832,6 +858,7 @@ async function dashboardCommand(): Promise<void> {
     console.log(chalk.dim("  취소했습니다."));
     return;
   }
+  console.log("  " + chalk.cyan("선택: ") + opts[idx].label);
   console.log(chalk.dim("  대시보드를 만듭니다…"));
   abortController = new AbortController();
   await processAgentEvents(cm.run(dashboardPrompt(file, opts[idx].value), abortController.signal));
