@@ -43,7 +43,7 @@ fi
 
 # 클론
 step "다운로드"
-git clone --depth 1 -q https://github.com/DEVZZAME/bcave-agent.git "$INSTALL_DIR"
+git clone --depth 1 -q https://github.com/DEVZZAME/bcave-code.git "$INSTALL_DIR"
 
 # 설치 + 빌드
 cd "$INSTALL_DIR"
