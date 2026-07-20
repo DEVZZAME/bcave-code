@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { exec } from "node:child_process";
 import { glob } from "glob";
 import XLSX from "xlsx";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
+import { buildDashboard, readWorkbook, TABULAR_EXT } from "../dashboard/engine.js";
 import type { PermissionCategory } from "./permissions.js";
 
 // Chart.js 로드 직후 적용할 전역 기본값: 항목이 적어도 막대가 카드 폭에 꽉 늘어나지 않게 두께 상한.
@@ -96,6 +98,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "create_dashboard",
+      description:
+        "Generate a single-file HTML dashboard from a tabular data file (Excel/CSV/TSV/TXT/HTML table) using the company design system (template1). It auto-analyzes the columns and builds KPIs, charts, a ranking, and a searchable table — no manual HTML needed. ALWAYS use this when the user asks to make a dashboard from a data file. For a non-tabular source (e.g. a PDF report), first read it with read_file, extract the data into a CSV with write_file, then call this on that CSV.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Path to the data file (xlsx/xls/ods/csv/tsv/txt/html)" },
+          output: { type: "string", description: "Optional output .html path. Default: <datafile>-dashboard.html next to the source." },
+        },
+        required: ["path"],
+      },
+    },
+  },
 ];
 
 const CATEGORY_MAP: Record<string, PermissionCategory> = {
@@ -103,6 +121,7 @@ const CATEGORY_MAP: Record<string, PermissionCategory> = {
   list_files: "file_read",
   search_files: "file_read",
   write_file: "file_write",
+  create_dashboard: "file_write",
   shell_exec: "shell_exec",
 };
 
@@ -168,13 +187,38 @@ function readSpreadsheet(filePath: string, displayPath: string): string {
 /** 스프레드시트를 행 객체 JSON 배열로 (자리표시자 {{BCAVE_DATA}} 치환용). 날짜는 실제 날짜로 변환. */
 function spreadsheetToJSON(filePath: string, sheet?: string): string {
   try {
-    const wb = XLSX.read(fs.readFileSync(filePath), { type: "buffer", cellDates: true });
+    const wb = readWorkbook(filePath); // 텍스트(csv·tsv·txt·html)·바이너리(엑셀) 모두 지원
     const name = sheet && wb.Sheets[sheet] ? sheet : wb.SheetNames[0];
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: null, raw: false });
     return JSON.stringify(rows.slice(0, 100_000));
   } catch {
     return "[]";
   }
+}
+
+/** PDF 텍스트 추출 (의존성 없이 zlib 로 FlateDecode 스트림 해제 + 텍스트 연산자 파싱).
+ *  디지털 생성 PDF 의 라틴/ASCII 텍스트에 유효. 스캔본·일부 한글 CID 폰트는 추출이 제한적. */
+function extractPdfText(buf: Buffer): string {
+  const raw = buf.toString("latin1");
+  const chunks: string[] = [];
+  const re = /stream\r?\n?([\s\S]*?)endstream/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) {
+    const data = Buffer.from(m[1], "latin1");
+    let text = "";
+    try { text = zlib.inflateSync(data).toString("latin1"); }
+    catch { try { text = zlib.inflateRawSync(data).toString("latin1"); } catch { text = data.toString("latin1"); } }
+    // 텍스트 연산자: (문자열)Tj / [ ... ]TJ 안의 리터럴 문자열만 모은다.
+    const ops: string[] = [];
+    const lit = /\((?:\\.|[^\\()])*\)/g;
+    let g: RegExpExecArray | null;
+    while ((g = lit.exec(text))) {
+      ops.push(g[0].slice(1, -1).replace(/\\([()\\])/g, "$1").replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\t/g, "\t"));
+    }
+    const joined = ops.join("");
+    if (joined.trim()) chunks.push(joined);
+  }
+  return chunks.join("\n").replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** 텍스트로 보기 어려운 바이너리 데이터인지 판별 (NUL·제어문자·깨진문자 비율). */
@@ -280,9 +324,19 @@ export async function executeTool(
     switch (name) {
       case "read_file": {
         const filePath = path.resolve(cwd, args.path as string);
+        const ext = path.extname(filePath).toLowerCase();
         // 엑셀 등 스프레드시트는 표(CSV)로 변환해서 읽는다.
-        if (SPREADSHEET_EXT.has(path.extname(filePath).toLowerCase())) {
+        if (SPREADSHEET_EXT.has(ext)) {
           return readSpreadsheet(filePath, args.path as string);
+        }
+        // PDF 는 텍스트를 추출해 읽는다 (의존성 없이). 데이터가 표 형태면 CSV 로 정리해
+        // create_dashboard 로 대시보드를 만들 수 있다.
+        if (ext === ".pdf") {
+          const text = extractPdfText(fs.readFileSync(filePath));
+          if (!text || text.length < 20) {
+            return `[PDF 에서 텍스트를 추출하지 못했습니다: ${args.path}\n(스캔 이미지 PDF 이거나 특수 폰트일 수 있습니다. 표 데이터라면 CSV/엑셀로 변환해 주세요.)]`;
+          }
+          return `[PDF 텍스트 추출: ${args.path}]\n\n` + truncate(text, MAX_READ_CHARS, "PDF가 큼(앞부분만)");
         }
         let content: string;
         let partial = false;
@@ -319,6 +373,34 @@ export async function executeTool(
           );
         }
         return `File written: ${args.path} (검토 통과)`;
+      }
+      case "create_dashboard": {
+        const filePath = path.resolve(cwd, args.path as string);
+        if (!fs.existsSync(filePath)) return `데이터 파일을 찾을 수 없습니다: ${args.path}`;
+        const ext = path.extname(filePath).toLowerCase();
+        if (!TABULAR_EXT.has(ext)) {
+          return `create_dashboard 는 표 형식(엑셀/CSV/TSV/TXT/HTML)만 지원합니다. '${ext}' 는 read_file 로 데이터를 읽어 CSV 로 저장한 뒤 그 CSV 로 다시 시도하세요.`;
+        }
+        let html: string, rowCount: number, sheet: string;
+        try {
+          ({ html, rowCount, sheet } = buildDashboard(filePath, "template1"));
+        } catch (e) {
+          return `대시보드 생성 실패: ${(e as Error).message}`;
+        }
+        if (!rowCount) return `데이터가 비어 있습니다: ${args.path}`;
+        const base = path.basename(filePath, ext);
+        const outPath = args.output
+          ? path.resolve(cwd, args.output as string)
+          : path.join(path.dirname(filePath), `${base}-dashboard.html`);
+        const resolved = resolvePlaceholders(html, cwd);
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        fs.writeFileSync(outPath, resolved, "utf-8");
+        const issues = reviewHtml(resolved, outPath);
+        const kb = Math.round(fs.statSync(outPath).size / 1024);
+        return (
+          `대시보드 생성 완료: ${outPath} (${kb}KB · ${rowCount.toLocaleString("ko-KR")}행 · 시트 "${sheet}" · template1 디자인시스템)` +
+          (issues.length ? `\n⚠ 검토 경고: ${issues.join("; ")}` : " · 검토 통과")
+        );
       }
       case "list_files": {
         const dirPath = path.resolve(cwd, args.path as string);

@@ -6,7 +6,7 @@ import { ConversationManager, type AgentEvent, type ToolCallRequest } from "../a
 import { PermissionManager, type PermissionMode } from "../agent/permissions.js";
 import type { BcaveConfig } from "../config/config.js";
 import { hubLogin, hubLogout, hubListModels, hubUsage, type HubModel } from "../auth/hub.js";
-import { buildDashboard, TEMPLATES } from "../dashboard/engine.js";
+import { buildDashboard, TEMPLATES, TABULAR_EXT } from "../dashboard/engine.js";
 import { executeTool } from "../agent/tools.js";
 import fs from "node:fs";
 import { execSync } from "node:child_process";
@@ -658,8 +658,9 @@ async function dashboardCommand(): Promise<void> {
   console.log("");
   console.log("  " + chalk.bold("데이터 대시보드 만들기"));
   console.log("  " + chalk.dim("데이터를 코드가 분석해 디자인시스템 템플릿으로 조립합니다 (토큰 0)."));
+  console.log("  " + chalk.dim("지원 형식: 엑셀(xlsx·xls·ods) · CSV · TSV · TXT · HTML 표"));
   console.log("");
-  let file = (await askLine(chalk.dim("  데이터 파일 경로 (엑셀/CSV) > "))).trim();
+  let file = (await askLine(chalk.dim("  데이터 파일 경로 > "))).trim();
   if (!file) {
     console.log(chalk.dim("  취소했습니다."));
     return;
@@ -668,6 +669,11 @@ async function dashboardCommand(): Promise<void> {
   if (!nodePath.isAbsolute(file)) file = nodePath.resolve(process.cwd(), file);
   if (!fs.existsSync(file)) {
     console.log(chalk.red("  파일을 찾을 수 없습니다: ") + file);
+    return;
+  }
+  if (!TABULAR_EXT.has(nodePath.extname(file).toLowerCase())) {
+    console.log(chalk.yellow("  표 형식 파일이 아닙니다") + chalk.dim(` (${nodePath.extname(file) || "확장자 없음"}).`));
+    console.log(chalk.dim("  PDF 등 비정형 파일은 채팅으로 \"이 파일로 대시보드 만들어줘\" 라고 하면 데이터를 뽑아 만들어줍니다."));
     return;
   }
 

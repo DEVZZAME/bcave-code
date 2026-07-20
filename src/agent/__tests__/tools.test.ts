@@ -18,8 +18,13 @@ describe("Tools", () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("has 5 tool definitions", () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(5);
+  it("has 6 tool definitions", () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(6);
+  });
+
+  it("exposes create_dashboard as a file_write tool", () => {
+    expect(TOOL_DEFINITIONS.map((t) => t.function.name)).toContain("create_dashboard");
+    expect(getToolCategory("create_dashboard")).toBe("file_write");
   });
 
   describe("getToolCategory", () => {

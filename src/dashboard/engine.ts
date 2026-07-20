@@ -24,9 +24,24 @@ export const TEMPLATES: Record<string, Template> = {
   },
 };
 
+// 표 데이터를 담을 수 있는 형식. 텍스트 계열은 UTF-8 로 읽어야 한글이 안 깨진다.
+export const TABULAR_EXT = new Set([
+  ".xlsx", ".xls", ".xlsm", ".xlsb", ".ods", // 바이너리(스프레드시트)
+  ".csv", ".tsv", ".txt", ".tab", ".html", ".htm", // 텍스트/마크업
+]);
+const TEXT_EXT = new Set([".csv", ".tsv", ".txt", ".tab", ".html", ".htm"]);
+
+/** 파일을 워크북으로 로드. 텍스트 형식(csv·tsv·txt·html)은 UTF-8 원본 문자열로(raw:true —
+ *  날짜 "2025-01-01" 이 로케일로 변형되는 것 방지), 그 외 바이너리는 버퍼+cellDates 로 읽는다. */
+export function readWorkbook(filePath: string): XLSX.WorkBook {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  if (TEXT_EXT.has(ext)) return XLSX.read(fs.readFileSync(filePath, "utf8"), { type: "string", raw: true });
+  return XLSX.read(fs.readFileSync(filePath), { type: "buffer", cellDates: true });
+}
+
 // ── 스프레드시트 읽기 (최대 시트 자동 선택) ──────
 export function readRows(filePath: string): { rows: Record<string, unknown>[]; sheet: string } {
-  const wb = XLSX.read(fs.readFileSync(filePath), { type: "buffer", cellDates: true });
+  const wb = readWorkbook(filePath);
   let name = wb.SheetNames[0];
   let best = -1;
   for (const s of wb.SheetNames) {
