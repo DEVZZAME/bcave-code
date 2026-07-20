@@ -239,18 +239,19 @@ mkChart(document.getElementById('grp2Chart'),{type:'bar',data:{labels:t2.map(fun
 
 // ── 상품(엔티티) 카드 + TOP 랭킹 ──
 var EC=S.entityCol;
-if(EC){var ge=groupSum(EC,MC?function(r){return num(r[MC]);}:null);var te=top(ge,6);var cntE=groupSum(EC,null);var EMO=['🛍️','👕','👟','👜','🧥','🧢','👗','⌚'];
-if(has('prodGrid'))set('prodGridTitle',EC+' 베스트'),html('prodGrid',te.map(function(p,i){return '<div class="ds-prod"><div class="ds-prod-img" style="background:'+PAL[3]+'33">'+EMO[i%EMO.length]+'</div><div class="ds-prod-body"><div class="ds-prod-cat">'+esc(cat0?String((D.find(function(r){return String(r[EC])===String(p[0]);})||{})[cat0]||''):'')+'</div><div class="ds-prod-name">'+esc(p[0])+'</div><div class="ds-prod-price">'+(MC?money(p[1]):fmt(p[1])+'건')+'</div></div></div>';}).join(''));
-if(has('topEntities'))set('topEntTitle',EC+' TOP '+Math.min(5,te.length)),html('topEntities',te.slice(0,5).map(function(p,i){return '<div class="ds-row"><div class="ds-row-rank">'+(i+1)+'</div><div class="ds-row-thumb" style="background:'+PAL[3]+'33">'+EMO[i%EMO.length]+'</div><div class="ds-row-main"><div class="ds-row-title">'+esc(p[0])+'</div><div class="ds-row-sub">'+fmt(cntE[p[0]]||0)+'건</div></div><div class="ds-row-val">'+(MC?money(p[1]):fmt(p[1]))+'</div></div>';}).join(''));}
+if(EC){var ge=groupSum(EC,MC?function(r){return num(r[MC]);}:null);var te=top(ge,6);var cntE=groupSum(EC,null);
+function mono(s){return esc(String(s).replace(/\s/g,'').slice(0,2));}
+if(has('prodGrid'))set('prodGridTitle',EC+' 베스트'),html('prodGrid',te.map(function(p,i){return '<div class="ds-prod"><div class="ds-prod-img" style="background:'+PAL[3]+'33;color:'+PAL[0]+';font-size:22px;font-weight:800">'+mono(p[0])+'</div><div class="ds-prod-body"><div class="ds-prod-cat">'+esc(cat0?String((D.find(function(r){return String(r[EC])===String(p[0]);})||{})[cat0]||''):'')+'</div><div class="ds-prod-name">'+esc(p[0])+'</div><div class="ds-prod-price">'+(MC?money(p[1]):fmt(p[1])+'건')+'</div></div></div>';}).join(''));
+if(has('topEntities'))set('topEntTitle',EC+' TOP '+Math.min(5,te.length)),html('topEntities',te.slice(0,5).map(function(p,i){return '<div class="ds-row"><div class="ds-row-rank">'+(i+1)+'</div><div class="ds-row-thumb" style="background:'+PAL[3]+'33;color:'+PAL[0]+';font-size:14px;font-weight:700">'+mono(p[0])+'</div><div class="ds-row-main"><div class="ds-row-title">'+esc(p[0])+'</div><div class="ds-row-sub">'+fmt(cntE[p[0]]||0)+'건</div></div><div class="ds-row-val">'+(MC?money(p[1]):fmt(p[1]))+'</div></div>';}).join(''));}
 
 // ── 인사이트: 팁 / 알림 / 피드 / 리포트 ──
-if(has('tipText')&&cat0){var tb=top(groupSum(cat0,MC?function(r){return num(r[MC]);}:null),1)[0];if(tb)set('tipText','💡 '+cat0+' 중 "'+tb[0]+'"이(가) '+(MC?S.metricLabel:'건수')+' 1위입니다. 전체의 '+pct(tb[1],MC?totMetric:N)+'%를 차지합니다.');}
+if(has('tipText')&&cat0){var tb=top(groupSum(cat0,MC?function(r){return num(r[MC]);}:null),1)[0];if(tb)set('tipText',cat0+' 중 "'+tb[0]+'"이(가) '+(MC?S.metricLabel:'건수')+' 1위입니다. 전체의 '+pct(tb[1],MC?totMetric:N)+'%를 차지합니다.');}
 if(has('notiList')){var noti=[];var tb2=cat0?top(groupSum(cat0,MC?function(r){return num(r[MC]);}:null),1)[0]:null;
-if(tb2)noti.push(['📈','최다 '+cat0,tb2[0]+' — '+(MC?money(tb2[1]):fmt(tb2[1])+'건')]);
-if(S.binaryCol)noti.push(['🎟️',S.binaryCol+' 비율',pct(D.filter(function(r){return String(r[S.binaryCol]).trim()===S.binaryPositive;}).length,N)+'%']);
-if(mMetric.ks.length>=2){var bm=mMetric.ks[mMetric.vs.indexOf(Math.max.apply(null,mMetric.vs))];noti.push(['🗓️','최고 실적 월',bm+' — '+money(Math.max.apply(null,mMetric.vs))]);}
-if(EC){var te2=top(groupSum(EC,MC?function(r){return num(r[MC]);}:null),1)[0];if(te2)noti.push(['🏆','베스트 '+EC,te2[0]]);}
-html('notiList',noti.slice(0,4).map(function(x){return '<div class="ds-noti"><div class="ds-noti-icon" style="background:var(--blue-100)">'+x[0]+'</div><div><div class="ds-noti-title">'+esc(x[1])+'</div><div class="ds-noti-body">'+esc(x[2])+'</div></div></div>';}).join(''));}
+if(tb2)noti.push(['최다 '+cat0,tb2[0]+' — '+(MC?money(tb2[1]):fmt(tb2[1])+'건')]);
+if(S.binaryCol)noti.push([S.binaryCol+' 비율',pct(D.filter(function(r){return String(r[S.binaryCol]).trim()===S.binaryPositive;}).length,N)+'%']);
+if(mMetric.ks.length>=2){var bm=mMetric.ks[mMetric.vs.indexOf(Math.max.apply(null,mMetric.vs))];noti.push(['최고 실적 월',bm+' — '+money(Math.max.apply(null,mMetric.vs))]);}
+if(EC){var te2=top(groupSum(EC,MC?function(r){return num(r[MC]);}:null),1)[0];if(te2)noti.push(['베스트 '+EC,te2[0]]);}
+html('notiList',noti.slice(0,4).map(function(x){return '<div class="ds-noti"><div class="ds-noti-icon" style="background:var(--blue-100)"><span style="width:8px;height:8px;border-radius:50%;background:var(--blue-500)"></span></div><div><div class="ds-noti-title">'+esc(x[0])+'</div><div class="ds-noti-body">'+esc(x[1])+'</div></div></div>';}).join(''));}
 if(has('feedList')&&DC){var sorted=D.slice().filter(function(r){return String(r[DC]);}).sort(function(a,b){return String(b[DC]).localeCompare(String(a[DC]));}).slice(0,6);
 html('feedList',sorted.map(function(r){var t=EC?esc(r[EC]):(cat0?esc(r[cat0]):'레코드');return '<div class="ds-feed-item"><div class="ds-noti-title" style="font-size:14px">'+t+'</div><div class="ds-noti-time">'+esc(String(r[DC]).slice(0,10))+(MC?' · '+money(num(r[MC])):'')+'</div></div>';}).join(''));}
 if(has('reportBody')){var parts=[];var tb3=cat0?top(groupSum(cat0,MC?function(r){return num(r[MC]);}:null),3):[];
@@ -283,10 +284,11 @@ const EXTRA_CSS = `
 .g-hero .value{font-size:var(--text-display);font-weight:800;letter-spacing:-.035em;margin-top:6px}
 .g-hero .sub{font-size:13px;color:var(--gray-500);margin-top:12px;font-weight:500}
 .g-hero .hv{flex-shrink:0;width:200px;height:70px}
-.g-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--card-gap);margin-bottom:var(--card-gap)}
-.g-kpi-grid .ds-card{margin-bottom:0;padding:20px 22px 14px}
-.g-spark{height:34px;margin-top:10px}
-@media(max-width:760px){.g-kpi-grid{grid-template-columns:repeat(2,1fr)}}
+.g-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--card-gap);margin-bottom:var(--card-gap)}
+.g-kpi-grid .ds-card{margin-bottom:0;padding:20px 22px 14px;min-width:0}
+.g-spark{height:34px;margin-top:10px;overflow:hidden}
+.g-spark canvas,.g-chart-box canvas{max-width:100%}
+@media(max-width:760px){.g-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .g-goal{background:linear-gradient(135deg,var(--blue-500) 0%,#1B64DA 100%);border-radius:var(--radius-card);padding:26px 28px;margin-bottom:var(--card-gap);color:#fff}
 .g-goal .gh{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
 .g-goal .gt{font-size:16px;font-weight:700}.g-goal .gp{font-size:28px;font-weight:800;letter-spacing:-.03em}
@@ -300,8 +302,11 @@ const EXTRA_CSS = `
 .g-pager button:disabled{opacity:.4;cursor:default}
 .g-tbl-scroll{overflow-x:auto;margin:0 -4px;padding:0 4px}
 .ds-tbl td.muted{color:var(--gray-700);font-weight:600;font-size:14px}
-.g-prod-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-@media(max-width:760px){.g-prod-grid{grid-template-columns:repeat(2,1fr)}}
+.g-prod-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:760px){.g-prod-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ds-two-col{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.ds-two-col > *{min-width:0}
+@media(max-width:760px){.ds-two-col{grid-template-columns:minmax(0,1fr)}}
 `;
 
 // ── HTML 조립 (모든 섹션; 데이터에 따라 일부 블록은 런타임에 자동 비움) ──
