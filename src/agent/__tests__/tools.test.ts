@@ -18,19 +18,15 @@ describe("Tools", () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("has 6 tool definitions", () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(6);
+  it("has 5 tool definitions (fs + shell only; UI direction is auto-injected)", () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(5);
   });
 
-  it("exposes frontend_design as a file_read tool", () => {
-    expect(TOOL_DEFINITIONS.map((t) => t.function.name)).toContain("frontend_design");
-    expect(getToolCategory("frontend_design")).toBe("file_read");
-  });
-
-  it("does NOT expose the built-in design-system tools in chat (only via /dashboard)", () => {
+  it("does NOT expose design/dashboard tools in chat (design system via /dashboard; art direction auto-injected)", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.function.name);
     expect(names).not.toContain("create_dashboard");
     expect(names).not.toContain("dashboard_design_system");
+    expect(names).not.toContain("frontend_design");
   });
 
   describe("getToolCategory", () => {

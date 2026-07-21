@@ -6,7 +6,6 @@ import { glob } from "glob";
 import XLSX from "xlsx";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
 import { readWorkbook } from "../dashboard/engine.js";
-import { findDirection, rotateDirection, renderDirection, directionMenu } from "../design/directions.js";
 import type { PermissionCategory } from "./permissions.js";
 
 // Chart.js 로드 직후 적용할 전역 기본값: 항목이 적어도 막대가 카드 폭에 꽉 늘어나지 않게 두께 상한.
@@ -99,22 +98,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "frontend_design",
-      description:
-        "Get a concrete ART DIRECTION for building ANY web UI in chat — screens, landing pages, components, AND dashboards/data views requested in natural language — fonts, palette, shape, motion, and a signature move. Call this FIRST before writing any UI so the result is distinctive, not the generic AI default look. Each call assigns a DIFFERENT direction (rotates) so repeated screens don't look the same; pass style (e.g. 'brutalist', '에디토리얼', 'luxe') to force a specific one. Commit fully to the returned direction. (The built-in company design system is NOT used in chat — it is only available via the separate /dashboard command the user runs.)",
-      parameters: {
-        type: "object",
-        properties: {
-          style: { type: "string", description: "Optional direction name/alias (e.g. swiss, editorial, brutalist, luxe, terminal, soft, minimal, playful, glass, warm). Omit to get a rotated/assigned direction." },
-          brief: { type: "string", description: "Optional one-line description of the screen (to note fit)." },
-        },
-        required: [],
-      },
-    },
-  },
 ];
 
 const CATEGORY_MAP: Record<string, PermissionCategory> = {
@@ -122,7 +105,6 @@ const CATEGORY_MAP: Record<string, PermissionCategory> = {
   list_files: "file_read",
   search_files: "file_read",
   write_file: "file_write",
-  frontend_design: "file_read",
   shell_exec: "shell_exec",
 };
 
@@ -428,24 +410,6 @@ export async function executeTool(
           );
         }
         return `File written: ${args.path} (검토 통과)`;
-      }
-      case "frontend_design": {
-        // 지정 스타일이 있으면 그걸로, 없으면 매 호출마다 다른 디렉션을 배정(획일화 방지).
-        const chosen = findDirection(args.style as string | undefined) ?? rotateDirection();
-        return (
-          `프론트엔드 아트 디렉션 (이 디렉션에 "완전히" 커밋하세요 — AI 기본 룩 금지):\n\n` +
-          renderDirection(chosen) +
-          `\n\n## 필수\n` +
-          `- 위 폰트·팔레트·모양·모션·시그니처를 실제로 적용. "가운데 카드 + 인디고 그라디언트 + Inter + rounded-2xl + 옅은 그림자" 같은 디폴트 룩 금지.\n` +
-          `- 폰트는 <head> 에 Google Fonts <link> 추가 후 CSS 에서 사용.\n` +
-          `- 반응형(모바일 우선): viewport meta, *{box-sizing:border-box}, flex/grid + minmax(0,1fr), max-width(고정 px 폭 금지), @media, img max-width:100%. 저장 시 자동 검토가 위반을 잡음.\n` +
-          `- 상태 처리: hover/focus/active/disabled + loading/empty/error.\n` +
-          `- 이 디렉션은 "시각(폰트·색·모양·모션)"만 바꾼다. 제목·문구·카피에 디렉션 분위기("따뜻하고 친근하게" 등)를 넣지 말 것.\n` +
-          `- 결과물(파일)에는 실제 콘텐츠만. 제작 과정·데이터 출처 경로·"다시 구성했습니다"·"단일 HTML"·"원하시면 다음 단계로…" 같은 설명은 넣지 말고 채팅으로만 말할 것.\n` +
-          `- 제목(h1)은 보고서 제목처럼 짧고 사실적인 명사구(끝에 마침표·문장 금지). 헤더는 간결하게(짧은 eyebrow + h1 + 필요시 한 줄 부제).\n\n` +
-          `## 다른 디렉션이 필요하면 style 인자로 다시 호출\n${directionMenu()}\n` +
-          `(사용자가 특정 스타일을 말하면 그걸로. 여러 화면을 만들 땐 화면마다 다른 디렉션을 써서 획일화를 피하세요.)`
-        );
       }
       case "list_files": {
         const dirPath = path.resolve(cwd, args.path as string);

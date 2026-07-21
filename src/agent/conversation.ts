@@ -5,6 +5,7 @@ import { executeTool, getToolCategory } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel } from "./router.js";
+import { directionForRequest, renderDirection } from "../design/directions.js";
 import { hubRefresh } from "../auth/hub.js";
 
 export interface ToolCallRequest {
@@ -29,6 +30,7 @@ export class ConversationManager {
   private cwd: string;
   private messages: ChatCompletionMessageParam[] = [];
   private pendingApprovals: Map<string, { resolve: (approved: boolean) => void }> = new Map();
+  private lastWasUi = false; // 직전 턴이 UI/대시보드 제작이었는지 (짧은 후속 수정 인식용)
 
   constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string) {
     this.config = config;
@@ -40,7 +42,7 @@ export class ConversationManager {
       content: `You are BCave, a CLI coding agent. You help users by reading/writing files and executing shell commands on their local machine. Working directory: ${cwd}. Always use the provided tools to interact with the filesystem and shell. Respond in the same language the user uses.
 
 UI / SCREENS (service & app development): When building product UI — screens, pages, components, forms, flows, features — build real, modern, production-quality web UI exactly like a general coding agent (Claude Code / Codex) would.
-ART DIRECTION (avoid same-looking output): BEFORE writing any UI, call frontend_design to get a concrete art direction (fonts/palette/shape/motion/signature) and COMMIT fully to it — never fall back to the generic AI default (centered card + indigo gradient + Inter + rounded-2xl + soft shadow). Pass a style arg if the user named one; otherwise use the assigned one and vary it across different screens. "다르게/새롭게 해줘" ⇒ call frontend_design again for a new direction.
+ART DIRECTION (avoid same-looking output): for every UI/dashboard request you are given a specific art direction as a system note "[이번 UI/대시보드는 아래 아트 디렉션으로 …]". COMMIT fully to that direction's fonts/palette/shape/motion — never fall back to the generic AI default (centered card + gradient + glass/pastel + Inter + rounded-2xl + soft shadow). Each request gets a different direction, so do not reuse the previous look; when the user names a feel (더 심플하게/부드럽게/다크하게 등) the note reflects it — follow it.
 Then inspect the repo and FOLLOW its existing stack and conventions: framework (React / Vue / Next / Svelte / plain HTML), styling (Tailwind / CSS Modules / styled-components / plain CSS), component library, routing, and file layout. Wire it into the codebase. If no stack exists yet, pick sensible modern defaults and say so.
 This applies to DASHBOARDS TOO: when the user asks in chat (natural language) to build a dashboard or any data view, build it as real, custom web UI in the chosen art direction (charts via a library like Chart.js if useful, tables, cards you design). Do NOT use the company built-in design system (template1/template2) for natural-language requests. The built-in design system is available ONLY through the /dashboard slash command (a separate deterministic generator the user runs explicitly) — you have no tool for it, so never claim to apply it in chat.
 DELIVERABLE CONTENT (what goes INSIDE the file): the file must contain ONLY the real product content — title, data, KPIs, charts, insights. NEVER embed meta/process narration in the deliverable: no "…를 바탕으로 다시 구성했습니다", no description of the art direction / mood ("따뜻하고 친근하게" 등), no data-source file path, no "단일 HTML 파일…" notes, no "원하시면 다음 단계로 …" suggestions. Put ALL of that in your CHAT reply only. The art direction changes the VISUAL style (fonts/colors/shape/motion) — it must NOT leak into the copy/wording of titles or text.
@@ -134,6 +136,18 @@ For embedding spreadsheet data token-free you may still use the {{BCAVE_DATA:/ab
   }
 
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
+    // UI/대시보드 제작 요청이면 아트 디렉션을 자동 주입 → 매번 같은 디자인(모델 기본 룩)으로
+    // 회귀하는 것을 방지. 사용자가 느낌/스타일을 말하면 그 방향, 아니면 회전(매번 다르게).
+    const dir = directionForRequest(userMessage, this.lastWasUi);
+    this.lastWasUi = dir.isUi;
+    if (dir.direction) {
+      this.messages.push({
+        role: "system",
+        content:
+          `[이번 UI/대시보드는 아래 아트 디렉션으로 만들 것. 이미 정해진 방향이니 임의로 다른 스타일로 바꾸지 말고, 시각(폰트·색·모양·모션)에만 적용하고 제목·문구 카피에는 넣지 말 것. 모델 기본 룩(가운데 카드+그라디언트+글래스/파스텔)으로 회귀 금지.]\n` +
+          renderDirection(dir.direction),
+      });
+    }
     this.messages.push({ role: "user", content: userMessage });
 
     // 용도별 모델 라우팅: 이 턴 전체에 사용할 모델을 메시지 성격으로 결정

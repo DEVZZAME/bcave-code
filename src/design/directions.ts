@@ -197,3 +197,41 @@ export function rotateDirection(): Direction {
   _lastId = d.id;
   return d;
 }
+
+// 사용자가 말한 "느낌/스타일" 단어 → 디렉션 (한/영)
+const STYLE_WORDS: Array<[RegExp, string]> = [
+  [/부드럽|파스텔|따뜻하게|친근|말랑|포근|은은|soft|pastel/i, "soft"],
+  [/심플|미니멀|깔끔|단순|간결|정갈|담백|미니멀리즘|minimal|simple|clean/i, "minimal"],
+  [/고급|럭셔리|럭스|프리미엄|우아|다크|어둡|블랙|luxe|luxury|premium|elegant|dark/i, "luxe"],
+  [/레트로|터미널|개발자|해커|콘솔|사이버|모노스페이스|retro|terminal|cyber|hacker/i, "terminal"],
+  [/강렬|브루탈|대담|볼드|과감|투박|힙하게|brutal|bold/i, "brutalist"],
+  [/잡지|에디토리얼|매거진|세리프|출판|저널|editorial|magazine/i, "editorial"],
+  [/스위스|그리드|타이포|기하학|정밀|swiss|grid/i, "swiss"],
+  [/팝|경쾌|컬러풀|화려|발랄|재밌|톡톡|playful|pop|colorful|fun/i, "playful"],
+  [/유리|글래스|투명|오로라|글래스모피즘|glass|aurora/i, "glass"],
+  [/흙|자연|오가닉|아늑|공예|웜하게|따뜻한 색|handcraft|organic|earthy|warm/i, "warm"],
+];
+
+/** 문장에서 스타일/느낌 단어를 찾아 해당 디렉션을 반환. 없으면 null. */
+export function styleFromText(text: string): Direction | null {
+  const t = text || "";
+  for (const [re, id] of STYLE_WORDS) if (re.test(t)) return DIRECTIONS.find((d) => d.id === id) ?? null;
+  return findDirection(t.trim());
+}
+
+const UI_NOUN =
+  /(대시보드|dashboard|화면|페이지|컴포넌트|랜딩|폼\b|모달|사이트|웹\s?ui|\bui\b|앱\s?화면|리포트|보고서|카드\s?레이아웃|테이블\s?뷰|메뉴바|네비게이션|히어로|섹션|랜딩페이지|landing|screen|page|component)/i;
+const CHANGE_HINT = /(다르게|새롭게|다른 느낌|다른 스타일|다시 만들|다시 해|바꿔|바꿔봐|바꿔줘|재구성|리디자인|redesign)/;
+
+/** 이 요청이 UI/대시보드 제작이면 적용할 아트 디렉션을 결정.
+ *  명시적 스타일 언급 → 그 디렉션, 아니면 회전(매번 다르게). lastWasUi 로 짧은 후속 수정도 UI 로 인식. */
+export function directionForRequest(
+  message: string,
+  lastWasUi: boolean,
+): { direction: Direction | null; isUi: boolean } {
+  const style = styleFromText(message);
+  let isUi = UI_NOUN.test(message) || !!style;
+  if (!isUi && lastWasUi && CHANGE_HINT.test(message)) isUi = true; // 대시보드 만든 직후 "다르게 해줘" 등
+  if (!isUi) return { direction: null, isUi: false };
+  return { direction: style ?? rotateDirection(), isUi: true };
+}
