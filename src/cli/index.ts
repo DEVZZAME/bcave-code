@@ -327,8 +327,9 @@ function toolResultLine(name: string, result: string): string | null {
     if (/^File not written\./.test(r)) {
       return chalk.red("    ✗ 저장 안 됨") + chalk.dim(" · " + r.replace(/^File not written\.\s*/, "").split("\n")[0].slice(0, 100));
     }
-    if (/^File written:.*\n✗/.test(r)) {
-      return chalk.red("    ✗ 검증 실패") + chalk.dim(" · 자동수정 한도 초과");
+    if (/^File written but NOT complete:/.test(r)) {
+      const attempt = r.match(/수정 시도 (\d+)/)?.[1];
+      return chalk.yellow("    ⚠ 검토 실패") + chalk.dim(` · 재작성 필요${attempt ? ` (${attempt}차)` : ""}`);
     }
     if (/⚠/.test(r)) {
       const detail = r.split("\n").slice(1).join(" ").replace(/\s+/g, " ").trim().slice(0, 90);

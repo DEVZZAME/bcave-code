@@ -343,6 +343,8 @@ COMPOSITION DISCIPLINE:
     const verifyCmds = this.config.autoVerify ? detectVerifyCommands(this.cwd, this.config.verifyCmds) : [];
     let codeTouched = false;
     let verifyRounds = 0;
+    let artifactValidationPending = false;
+    let artifactRepairRounds = 0;
 
     try {
       while (true) {
@@ -361,12 +363,34 @@ COMPOSITION DISCIPLINE:
         const { message } = choice;
 
         const text = message.content?.trim() ?? "";
-        if (text && text !== lastText) {
+        const modelIsTryingToFinishPendingArtifact = artifactValidationPending &&
+          (!message.tool_calls || message.tool_calls.length === 0);
+        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact) {
           lastText = text;
           yield { type: "text", content: message.content as string };
         }
 
         if (!message.tool_calls || message.tool_calls.length === 0) {
+          // 디자인 산출물은 write_file의 검토 통과가 완료 조건이다. 모델이 린트 실패 뒤
+          // 성공 문구를 말해도 종료하지 않고, 같은 파일을 다시 작성하도록 되먹인다.
+          if (artifactValidationPending && !signal?.aborted) {
+            artifactRepairRounds++;
+            const maxArtifactRepairRounds = Math.max(3, this.config.maxVerifyRounds ?? 2);
+            if (artifactRepairRounds > maxArtifactRepairRounds) {
+              yield { type: "error", message: "디자인 산출물이 반복 수정 후에도 검토를 통과하지 못했습니다. 미완성 상태이므로 생성 완료로 처리하지 않습니다." };
+              return;
+            }
+            this.messages.push({ role: "assistant", content: message.content ?? "" });
+            this.messages.push({
+              role: "user",
+              content:
+                "[완료 차단] 마지막 write_file 결과가 검토 실패였습니다. 지금은 완료 응답을 할 수 없습니다. " +
+                "직전 violations를 제거하도록 body/app_script를 다시 작성하고 같은 파일에 write_file을 호출하세요. " +
+                "부분 수정이 반복 실패했다면 위반 구간을 디자인 시스템 제공 클래스만 사용해 새로 구성하세요.",
+            });
+            lastText = "";
+            continue;
+          }
           // A) 완료 직전 자동 검증: 코드가 바뀌었고 검증 명령이 있으면 실행, 실패하면 로그를 되먹여 계속 고친다.
           if (verifyCmds.length && codeTouched && verifyRounds < this.config.maxVerifyRounds && !signal?.aborted) {
             yield { type: "verify", status: "run", cmd: verifyCmds.join(" && ") };
@@ -453,6 +477,17 @@ COMPOSITION DISCIPLINE:
           }
 
           const result = await executeTool(name, args, this.cwd);
+          if (name === "write_file" && typeof args.path === "string" && /\.html?$/i.test(args.path)) {
+            if (/\(검토 통과\)\s*$/.test(result)) {
+              artifactValidationPending = false;
+              artifactRepairRounds = 0;
+            } else if (typeof args.design_system === "string") {
+              // 디자인 시스템 산출물은 저장 실패/계약 위반/린트 실패 모두 미완성이다.
+              artifactValidationPending = true;
+            } else if (/^File written(?: but NOT complete)?:/m.test(result) && /(?:⚠|✗|문제가 발견)/.test(result)) {
+              artifactValidationPending = true;
+            }
+          }
           // 코드 파일이 바뀌면 완료 시 자동 검증 대상으로 표시(HTML 단일 산출물은 reviewHtml 이 따로 담당).
           if (name === "write_file" && typeof args.path === "string" && CODE_EXT.test(args.path)) codeTouched = true;
           this.messages.push({

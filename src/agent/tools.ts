@@ -762,10 +762,10 @@ export async function executeTool(
           if (!lint.pass) {
             const attempts = (designLintAttempts.get(filePath) ?? 0) + 1;
             designLintAttempts.set(filePath, attempts);
-            if (attempts >= 2) {
-              return `File written: ${args.path}\n✗ ${design} 디자인 린트가 자동수정 최대 2회 후에도 실패했습니다. 사용자에게 아래 위반 목록을 보고하고 더 이상 자동수정하지 마세요:\n${JSON.stringify(lint.violations, null, 2)}`;
-            }
-            return `File written: ${args.path}\n⚠ ${design} 디자인 린트 FAIL (자동수정 ${attempts}/2). 다음 violations를 수정해 write_file의 body/app_script 필드로 같은 파일에 다시 저장하세요:\n${JSON.stringify(lint.violations, null, 2)}`;
+            const strategy = attempts >= 2
+              ? "같은 수정이 반복 실패했습니다. 위반 클래스/구조를 부분 수정하지 말고, 제공된 UI 클래스만 사용하도록 해당 body 구간을 다시 작성하세요."
+              : "다음 violations를 수정하세요.";
+            return `File written but NOT complete: ${args.path}\n⚠ ${design} 디자인 린트 FAIL (수정 시도 ${attempts}). ${strategy} 검토 통과 전에는 완료 응답을 하지 말고 write_file의 body/app_script 필드로 같은 파일에 다시 저장하세요:\n${JSON.stringify(lint.violations, null, 2)}`;
           }
           designLintAttempts.delete(filePath);
         }

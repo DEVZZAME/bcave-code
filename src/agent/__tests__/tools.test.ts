@@ -96,6 +96,20 @@ describe("Tools", () => {
       const content = fs.readFileSync(path.join(testDir, "a/b/c.txt"), "utf-8");
       expect(content).toBe("deep");
     });
+
+    it("never tells the model to stop repairing a failed design lint", async () => {
+      const args = {
+        path: "invalid-dashboard.html",
+        design_system: "bcave",
+        body: '<div class="page"><div class="row">invalid class</div></div>',
+        app_script: "void 0;",
+      };
+      const first = await executeTool("write_file", args, testDir);
+      const second = await executeTool("write_file", args, testDir);
+      expect(first).toContain("File written but NOT complete");
+      expect(second).toContain("해당 body 구간을 다시 작성");
+      expect(second).not.toContain("더 이상 자동수정하지 마세요");
+    });
   });
 
   describe("list_files", () => {
