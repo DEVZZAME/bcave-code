@@ -4,6 +4,7 @@ import { createOpenAIClient, chat } from "../openai/client.js";
 import { executeTool, getToolCategory } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
+import { pickModel } from "./router.js";
 import { hubRefresh } from "../auth/hub.js";
 
 export interface ToolCallRequest {
@@ -17,6 +18,7 @@ export type AgentEvent =
   | { type: "text"; content: string }
   | { type: "tool_call"; request: ToolCallRequest }
   | { type: "tool_result"; name: string; result: string }
+  | { type: "model"; model: string; tier: "heavy" | "light" | "manual" }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -129,6 +131,10 @@ Exception: for a quick standard full dashboard, use create_dashboard.`,
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     this.messages.push({ role: "user", content: userMessage });
 
+    // 용도별 모델 라우팅: 이 턴 전체에 사용할 모델을 메시지 성격으로 결정
+    const routed = pickModel(this.config, userMessage);
+    yield { type: "model", model: routed.model, tier: routed.tier };
+
     // 같은 텍스트가 연속으로 출력되는 중복 방지 (모델이 도구 호출 전후로
     // 동일 인사/질문을 반복하는 경우 화면에 두 번 찍히던 문제).
     let lastText = "";
@@ -137,7 +143,7 @@ Exception: for a quick standard full dashboard, use create_dashboard.`,
       while (true) {
         this.trimHistory();
         if (signal?.aborted) return;
-        const response = await chat(this.client, this.messages, this.config.model, {
+        const response = await chat(this.client, this.messages, routed.model, {
           onAuthError: () => this.refreshSession(),
           signal,
         });

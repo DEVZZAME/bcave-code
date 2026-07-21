@@ -95,7 +95,7 @@ function cycleMode(): void {
 // ─── Slash Commands ────────────────────────────────────
 const COMMANDS = [
   { name: "/dashboard", desc: "데이터 파일로 대시보드 생성 (디자인시스템 템플릿)" },
-  { name: "/model", desc: "모델 선택" },
+  { name: "/model", desc: "모델 선택 (auto 용도별 라우팅 · heavy/light <id> · <id> 고정)" },
   { name: "/usage", desc: "사용량/한도 확인" },
   { name: "/login", desc: "사내 계정 로그인" },
   { name: "/logout", desc: "로그아웃" },
@@ -740,13 +740,33 @@ async function handleSlashCommand(text: string): Promise<boolean> {
   }
 
   if (trimmed === "/model" || trimmed.startsWith("/model ")) {
-    // If model name provided directly, set it
-    const directModel = trimmed.slice(7).trim();
-    if (directModel) {
-      saveConfig({ model: directModel });
+    const arg = trimmed.slice(7).trim();
+    const [sub, ...rest] = arg.split(/\s+/);
+    const val = rest.join(" ").trim();
+    // 용도별 자동 라우팅 제어
+    if (sub === "auto") {
+      saveConfig({ autoRoute: true });
       config = loadConfig();
       rebuildCM();
-      console.log(chalk.green(`  ✓ model → ${directModel}`));
+      console.log(chalk.green("  ✓ 자동 라우팅 ON") + chalk.dim(`  (개발/UI → ${config.modelHeavy} · 질문/연산 → ${config.modelLight})`));
+      return true;
+    }
+    if (sub === "heavy" && val) {
+      saveConfig({ modelHeavy: val }); config = loadConfig(); rebuildCM();
+      console.log(chalk.green(`  ✓ 개발/UI 모델 → ${val}`));
+      return true;
+    }
+    if (sub === "light" && val) {
+      saveConfig({ modelLight: val }); config = loadConfig(); rebuildCM();
+      console.log(chalk.green(`  ✓ 질문/연산 모델 → ${val}`));
+      return true;
+    }
+    // 특정 모델 직접 지정 → 수동 모드(자동 라우팅 off)
+    if (arg) {
+      saveConfig({ model: arg, autoRoute: false });
+      config = loadConfig();
+      rebuildCM();
+      console.log(chalk.green(`  ✓ model → ${arg}`) + chalk.dim("  (자동 라우팅 OFF — /model auto 로 복귀)"));
       return true;
     }
     // Interactive model selection
@@ -780,6 +800,14 @@ async function processAgentEvents(gen: AsyncGenerator<AgentEvent>): Promise<void
       stopSpinner();
 
       switch (event.type) {
+        case "model": {
+          // 용도별 라우팅 시 어떤 모델이 선택됐는지 옅게 표시
+          if (event.tier !== "manual") {
+            const why = event.tier === "heavy" ? "개발·UI" : "질문·연산";
+            console.log("  " + chalk.dim(`↳ ${event.model} (${why})`));
+          }
+          break;
+        }
         case "text":
           console.log("");
           for (const line of event.content.split("\n")) console.log("  " + line);
@@ -941,7 +969,8 @@ async function main(): Promise<void> {
   }
   console.log("");
   const who = isLoggedIn(config) ? `  ·  ${config.userName || config.userEmail}` : "";
-  console.log("  " + chalk.dim(`v0.1.0  ·  ${config.model}  ·  ${process.cwd()}${who}`));
+  const modelLabel = config.autoRoute ? `자동(${config.modelHeavy} · ${config.modelLight})` : config.model;
+  console.log("  " + chalk.dim(`v0.1.0  ·  ${modelLabel}  ·  ${process.cwd()}${who}`));
   console.log("  " + chalk.dim("Shift+Tab 모드 전환  ·  /help 명령어  ·  Ctrl+C 종료"));
   console.log("");
 

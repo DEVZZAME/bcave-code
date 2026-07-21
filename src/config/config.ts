@@ -10,7 +10,12 @@ export interface BcaveConfig {
   userEmail: string; // 로그인된 사용자 이메일 (표시용)
   userName: string; // 로그인된 사용자 이름 (표시용)
 
-  model: string;
+  model: string; // 수동/기본 모델 (autoRoute off 일 때 사용)
+
+  // ── 용도별 자동 모델 라우팅 ──
+  autoRoute: boolean; // true 면 작업 성격에 따라 아래 두 모델을 자동 선택
+  modelHeavy: string; // UI·서비스 개발·유지보수 등 무거운 작업
+  modelLight: string; // 간단한 질문·연산 등 가벼운 작업
 
   // ── 레거시/폴백: 직접 OpenAI 키 사용 ──
   apiKey: string;
@@ -25,6 +30,9 @@ const DEFAULT_CONFIG: BcaveConfig = {
   userEmail: "",
   userName: "",
   model: "gpt-5.5",
+  autoRoute: true,
+  modelHeavy: "gpt-5.4",
+  modelLight: "gpt-5.4-mini",
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
 };
