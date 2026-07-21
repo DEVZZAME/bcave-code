@@ -519,6 +519,12 @@ function reviewHtml(content: string, filePath: string): string[] {
         !/window\.__SHEETS\s*=\s*\{\{BCAVE_SHEETS/.test(content)) {
       issues.push("주입하지 않은 데이터 전역/헬퍼(window.__DATA_MAP__, loadSheet() 등)를 참조합니다 → 그 섹션이 빈값이 됩니다. 필요한 시트를 {{BCAVE_DATA:경로#시트명}} 로 각각 주입하거나 window.__SHEETS = {{BCAVE_SHEETS:경로}} 로 넣고 window.__SHEETS['시트명'] 로 읽으세요.");
     }
+    // 다중 시트 맵을 배열로 잘못 주입: window.__SHEETS 등에 배열을 넣고 sheets['시트명'] 로 접근 → 전부 빈값
+    const sheetsAsArray = /(?:window\.)?__?SHEETS\w*\s*=\s*\[\s*\{/.test(content) ||
+      (/=\s*\[\s*\{/.test(content) && /\bsheets\b\s*\[\s*['"`]/.test(content) && !/__SHEETS\s*=\s*\{[^[]/.test(content));
+    if (sheetsAsArray) {
+      issues.push("다중 시트 데이터를 '배열'로 주입해놓고 sheets['시트명'] 처럼 '맵'으로 접근합니다 → 모든 시트 조회가 빈값이 되어 데이터가 안 보입니다. 여러 시트를 쓰면 window.__SHEETS = {{BCAVE_SHEETS:경로}} (시트명→행배열 맵) 로 주입하고 window.__SHEETS['시트명'] 로 읽으세요. 한 시트만 쓰면 그 배열을 직접 순회하세요(맵 접근 금지).");
+    }
     // 정리된 데이터에 .slice(N) 으로 앞행을 '헤더인 줄 알고' 버리는 오류
     if (/(?:window\.__\w+|sheets\.\w+|__SHEETS\[[^\]]+\])\s*(?:\|\|\s*\[\s*\])?\s*\)?\s*\.slice\(\s*[1-9]/.test(content)) {
       issues.push("주입된 데이터에 .slice(1+) 로 앞 행을 건너뜁니다. 데이터는 이미 정리된 행 객체 배열(제목행 자동 제거)이라 .slice 로 앞행을 버리면 실제 데이터가 사라집니다.");

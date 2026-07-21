@@ -42,7 +42,31 @@ const BCAVE_SHELL = `:root{--easing:var(--easing-standard);--font-mono:var(--fon
 .sec-head .kicker{font-size:13px;font-weight:500;color:var(--ink-500)}
 .sec-head h2{font-size:26px;line-height:34px;font-weight:800;color:var(--color-text-strong);margin-top:2px}
 .sec-head p{color:var(--ink-500);font-size:14px;margin-top:var(--space-2)}
-@media(max-width:640px){.hero h1{font-size:25px;line-height:36px} .hero{padding:var(--space-10) var(--space-6)}}`;
+@media(max-width:640px){.hero h1{font-size:25px;line-height:36px} .hero{padding:var(--space-10) var(--space-6)}}
+:root{--table-fs:var(--table-font-size);--table-px:var(--table-padding-x);--table-row-h:var(--table-row-height)}
+.card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-1);padding:var(--card-padding)}
+.card>h3{font-size:15px;font-weight:800;margin:0 0 var(--space-4);color:var(--color-text-strong)}
+.card .sub{font-size:12.5px;color:var(--slate-400);font-weight:500;margin:-10px 0 14px}
+.kpi{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-1);padding:var(--space-5)}
+.kpi.dark{background:var(--slate-800);border-color:var(--slate-800)}
+.kpi.dark .lb{color:var(--slate-300)}
+.kpi.dark .val{color:#fff}
+.kpi .lb{font-size:12.5px;color:var(--ink-500);font-weight:700}
+.kpi .val{font-size:var(--kpi-value-size);font-weight:800;margin-top:7px;letter-spacing:-.02em;color:var(--color-text-strong);font-feature-settings:"tnum" 1}
+.kpi .delta{font-size:12.5px;font-weight:700;margin-top:5px;display:inline-flex;align-items:center;gap:4px}
+.delta.up{color:var(--color-increase)}
+.delta.down{color:var(--color-decrease)}
+.kpi.dark .delta.up{color:#7FC5A8}
+.num{font-feature-settings:"tnum" 1;letter-spacing:-.02em}
+table.bcv{width:100%;border-collapse:collapse;font-size:var(--table-fs)}
+table.bcv th{text-align:left;font-weight:700;color:#fff;font-size:12.5px;padding:0 var(--table-px);height:40px;background:var(--slate-500)}
+table.bcv th:first-child{border-radius:var(--radius-xs) 0 0 0}
+table.bcv th:last-child{border-radius:0 var(--radius-xs) 0 0}
+table.bcv th.r,table.bcv td.r{text-align:right}
+table.bcv td{padding:0 var(--table-px);height:var(--table-row-h);border-bottom:1px solid var(--slate-100);font-weight:500}
+table.bcv tbody tr:hover td{background:var(--slate-50)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:6px 13px;border-radius:var(--radius-full);border:1px solid var(--slate-200);background:var(--color-surface);cursor:pointer}
+.chip.on{background:var(--slate-800);border-color:var(--slate-800);color:#fff}`;
 const AXIS_SHELL = `.topbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-border)}
 .topbar-inner{max-width:1040px;margin:0 auto;padding:0 var(--space-6);height:56px;display:flex;align-items:center;gap:var(--space-4)}
 .logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:16px;letter-spacing:.02em;color:var(--color-text-primary)}
@@ -175,16 +199,19 @@ const MEOK_SHELL = `:root{--easing:var(--easing-standard);--font-display:var(--f
 @media(max-width:640px){.hero{flex-direction:column;gap:var(--space-5)} .hero .vlabel{writing-mode:horizontal-tb;border-left:none;border-top:1px solid var(--meok-100);padding:var(--space-2) 0 0} .hero .body h1{font-size:28px}}`;
 const SHELL_NOTE = "\n표준 셸(모든 페이지 공통 — 빼거나 새로 만들지 말 것): <body> 안에 GNB <div class=\"topbar\"><div class=\"topbar-inner\"><div class=\"logo\">제품/서비스명</div><nav><a href=\"#\">메뉴1</a><a href=\"#\">메뉴2</a>…</nav></div></div> 다음에 <main class=\"wrap\"><div class=\"page-head\"><h1>제목</h1><p>부제</p></div> …내용… </main>. GNB·.wrap·.page-head 는 이 시스템 모든 화면의 고정 크롬이다.\n섹션 헤더 규칙(디자인 시스템 시그니처 — 반드시 지킬 것): 각 주요 섹션은 <div class=\"sec-head\"> 로 시작한다. 그 안에 (1)영문 오버라인(예: OVERVIEW / PRINCIPLES / TRENDS / DETAILS — 대문자 짧은 영단어) (2)국문 제목 h2 (3)그 아래 얇은 구분선. 구분선·틱은 CSS가 자동으로 그린다(AXIS는 sec-head 자체가, ATELIER는 <div class=\"hairline\"></div> 를 마지막에 넣어야 함 — 각 가이드 마크업 참고). 페이지 최상단(page-head 대신 더 강조하고 싶으면)에는 히어로 <div class=\"hero\"> 를 둘 수 있다: 오버라인/뱃지 + 큰 제목(강조 단어는 <em>) + 설명 한 줄. 콘텐츠 배치는 매번 달라도, 이 오버라인+제목+구분선 헤더 패턴은 모든 섹션에서 동일하게 유지한다.";
 
-const BCAVE_GUIDE = `BCAVE — 자사 브랜드 · 모노톤 슬레이트 · PPT 표지 문법(3색 모노톤, 하나만 어둡게, 흰 헤어라인). 컴포넌트 클래스 없는 "토큰형".
-- 색: 배경 var(--color-bg)(밝은 슬레이트) · 표면 var(--color-surface)(흰색) · 텍스트 var(--color-text-primary)/강한 제목 var(--color-text-strong) · 보조 var(--ink-500) · 강조/다크 var(--color-primary)(=slate-800) · 슬레이트 스케일 var(--slate-800|300|200|100)
-- 타이포: font: var(--text-display-1|heading-1|body-1|…). 라벨/메타는 모노 var(--font-family-mono). 지표 var(--text-data-*)
-- 형태: 라운드 var(--radius-xs|md|lg|full), 그림자 var(--shadow-1|2), 흰 2px 헤어라인, 다크 슬레이트 블록. 절제된 3색 모노톤(강조는 어두운 슬레이트 하나로).
-- 차트 var(--chart-1..6). body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Pretendard <link> 필요.
-- 예) 카드: <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--card-padding);box-shadow:var(--shadow-1)">…</div>
-- CI 로고(필수): 브랜드 로고는 자리표시자 {{BCAVE_LOGO}} 로 넣는다(실제 B.CAVE SVG 가 주입됨, fill:currentColor). GNB 로고에 반드시 포함: <div class="logo">{{BCAVE_LOGO}}</div> + CSS .logo .bcave-logo{height:20px;width:auto;color:var(--slate-800)}. 텍스트로 "B.CAVE" 를 직접 타이핑하지 말 것.
-- 히어로(브랜드 표지형 다크 슬레이트 박스+흰 헤어라인+우측정렬): <div class="hero"><div class="top"><h1>핵심 제목</h1><div class="rule"></div><div class="dept">부서/팀명</div></div><div class="foot"><span>태그</span><em>날짜/버전</em></div></div>. 히어로 상단에 로고를 두려면 {{BCAVE_LOGO}} 를 쓰고 .hero .bcave-logo{height:28px;color:#fff} 로 흰색 지정.
-- ★ 히어로는 다크 배경이다(background:var(--slate-800)). 그 안의 모든 글자(h1·p·태그·강조 em)는 반드시 밝은 색(#fff / var(--slate-200|300))으로. 어두운 텍스트 토큰(var(--color-text-primary/strong), var(--ink-*), var(--color-primary))을 히어로 안에 쓰면 다크-온-다크로 안 보인다. .rule 은 흰색(#fff).
-- 섹션 헤더(모든 섹션 필수): <div class="sec-head"><div class="kicker">English Kicker</div><h2>국문 제목</h2><p>한 줄 설명</p></div>  ← 왼쪽 다크 라운드 탭은 sec-head 가 자동으로 그림`;
+const BCAVE_GUIDE = `BCAVE — 자사 브랜드 · 모노톤 슬레이트 · PPT 표지 문법(3색 모노톤, 하나만 어둡게, 흰 헤어라인). 아래 시그니처 컴포넌트를 조립한다.
+- 색: 오직 모노톤 슬레이트 + 흑백. 배경 var(--color-bg) · 표면 var(--color-surface)(흰색) · 텍스트 var(--color-text-primary)/강한 제목 var(--color-text-strong) · 보조 var(--ink-500) · 강조/다크 var(--color-primary)(=slate-800) · 슬레이트 var(--slate-800|500|300|200|100). 증감만 var(--color-increase)/var(--color-decrease). 다른 색상(파랑·보라 등) 도입 금지.
+- 타이포: font: var(--text-display-1|heading-1|body-1|…). 숫자는 var(--text-data-xl|lg|md|sm)(존재하는 것만). 라벨/메타는 모노 var(--font-family-mono).
+- 형태: 라운드 var(--radius-xs|sm|md|lg|full), 그림자 var(--shadow-1|2). Pretendard <link> 필요.
+- CI 로고: GNB(좌측 상단)에만 작게. <div class="logo">{{BCAVE_LOGO}}</div> + .logo .bcave-logo{height:20px;width:auto;color:var(--slate-800)}. 텍스트로 "B.CAVE" 타이핑 금지. ★ 히어로 안에는 로고를 넣지 말 것(타이틀만).
+- 히어로(브랜드 표지형 = 다크 슬레이트 박스, 흰 글자, 우측 정렬, 흰 헤어라인. 타이틀만): <div class="hero"><div class="top"><h1>핵심 제목</h1><div class="rule"></div><div class="dept">부서/팀 · 기간</div></div><div class="foot"><span>태그</span><em>날짜/버전</em></div></div>. ★ 히어로는 다크 배경 → 그 안 모든 글자는 밝은 색(#fff/var(--slate-200|300)). 어두운 텍스트 토큰을 히어로에 쓰면 안 보인다. .rule 은 흰색.
+- 섹션 헤더(모든 섹션 필수, 왼쪽 다크 탭 자동): <div class="sec-head"><div class="kicker">English Kicker</div><h2>국문 제목</h2><p>한 줄 설명</p></div>
+- 컴포넌트(반드시 이 클래스 사용 — 즉석 카드/표 CSS 금지):
+  · KPI: <div class="kpi"><div class="lb">라벨</div><div class="val num">1,240</div><div class="delta up">▲ 12%</div></div> (하락은 delta down, 어두운 강조 카드는 kpi dark)
+  · 카드/패널: <div class="card"><h3>제목</h3><div class="sub">부제</div> …내용… </div>
+  · 표: <table class="bcv"><thead><tr><th>컬럼</th><th class="r">숫자</th></tr></thead><tbody><tr><td>…</td><td class="r num">1,240</td></tr></tbody></table> (헤더는 슬레이트+흰글자 자동, 숫자열은 class="r num")
+  · 칩/필터: <span class="chip">전체</span> <span class="chip on">선택</span>
+  · 차트: Chart.js + 팔레트 var(--chart-1..6)(모노톤). 값은 window.__DATA 집계에서.`;
 
 const AXIS_GUIDE = `AXIS — 밝은 코발트 · 웹 플랫폼/대시보드 (모던 프로페셔널). 컴포넌트 클래스가 없는 "토큰형" — 아래 CSS 변수로 컴포넌트를 직접 만든다.
 - 색: 배경 var(--color-bg) · 표면 var(--color-surface) · 보더 var(--color-border) · 텍스트 var(--color-text-primary|secondary|tertiary) · 강조 var(--color-primary)(코발트) · 증감 var(--color-increase)녹/var(--color-decrease)적 · 상태 success/danger/warning(+ -subtle 배경)
