@@ -5,7 +5,7 @@ import { executeTool, getToolCategory } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel } from "./router.js";
-import { directionForRequest, renderDirection } from "../design/directions.js";
+import { designChoiceForRequest, systemsMenu } from "../design/systems.js";
 import { hubRefresh } from "../auth/hub.js";
 
 export interface ToolCallRequest {
@@ -32,6 +32,7 @@ export class ConversationManager {
   private messages: ChatCompletionMessageParam[] = [];
   private pendingApprovals: Map<string, { resolve: (approved: boolean) => void }> = new Map();
   private lastWasUi = false; // 직전 턴이 UI/대시보드 제작이었는지 (짧은 후속 수정 인식용)
+  private lastSystemId = ""; // 직전에 선택된 디자인 시스템 (후속 수정 시 유지)
 
   constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string) {
     this.config = config;
@@ -43,14 +44,12 @@ export class ConversationManager {
       content: `You are BCave, a CLI coding agent. You help users by reading/writing files and executing shell commands on their local machine. Working directory: ${cwd}. Always use the provided tools to interact with the filesystem and shell. Respond in the same language the user uses.
 
 UI / SCREENS (service & app development): When building product UI — screens, pages, components, forms, flows, features — build real, modern, production-quality web UI exactly like a general coding agent (Claude Code / Codex) would.
-ART DIRECTION (avoid same-looking output): for every UI/dashboard request you are given a specific art direction as a system note "[이번 UI/대시보드는 아래 아트 디렉션으로 …]". COMMIT fully to that direction's fonts/palette/shape/motion — never fall back to the generic AI default (centered card + gradient + glass/pastel + Inter + rounded-2xl + soft shadow). Each request gets a different direction, so do not reuse the previous look; when the user names a feel (더 심플하게/부드럽게/다크하게 등) the note reflects it — follow it.
-CLARIFY FIRST: if a UI/dashboard request does NOT state a style/mood/feel, ALWAYS ask first — even when the data/content IS given. Do not build with a default look. Ask 1-2 short questions: what feel/style (심플·모던·다크·레트로·에디토리얼 …) and, if unclear, what to include. A system note flags this. Only skip the question when the user names a style/mood, or says "알아서/그냥"(then use a good default), or is answering your previous clarify question. (This overrides the auto art-direction for that turn.)
+DESIGN SYSTEM CHOICE (mandatory): the company has 4 design systems (1 AXIS, 2 TOSS, 3 CLASSIC, 4 ATELIER). Whenever the user asks to build a screen / dashboard / any HTML page and has NOT picked one, do NOT build yet — ASK which of the 4 to use (they answer by number or name). A system note lists them. Once chosen (or if the user names it, or says "알아서" → you pick), you get a system note "[이번 화면/대시보드/HTML 은 "…" 디자인 시스템으로 …]" with that system's rules/tokens/components — build with ONLY those (no arbitrary colors/fonts/values). Inline its CSS via <style>{{BCAVE_DS:<id>}}</style> (token-free). Keep the chosen system across follow-up edits; only re-ask for a brand-new page.
+VARY THE LAYOUT: never emit the same fixed template every time. Following the system's rules (spacing/typography/color/components), arrange each build DIFFERENTLY — different grid, order, emphasis, section composition to fit the request and data. Rules are fixed; layout is fresh each time.
 Then inspect the repo and FOLLOW its existing stack and conventions: framework (React / Vue / Next / Svelte / plain HTML), styling (Tailwind / CSS Modules / styled-components / plain CSS), component library, routing, and file layout. Wire it into the codebase. If no stack exists yet, pick sensible modern defaults and say so.
-This applies to DASHBOARDS TOO: when the user asks in chat (natural language) to build a dashboard or any data view, build it as real, custom web UI in the chosen art direction (charts via a library like Chart.js if useful, tables, cards you design). Do NOT use the company built-in design system (template1/template2) for natural-language requests. The built-in design system is available ONLY through the /dashboard slash command (a separate deterministic generator the user runs explicitly) — you have no tool for it, so never claim to apply it in chat.
-DASHBOARD FILE RULES (mandatory): (1) SINGLE self-contained .html file — ALL CSS inside one inline <style> tag in that same file, and JS inline too; do NOT create separate .css/.js files or link external stylesheets (a web-font <link> and an inlined chart library are the only allowed externals). (2) ALWAYS write to a NEW file — pick a filename that does not already exist (e.g. <name>-dashboard.html, and if it exists use <name>-dashboard-2.html, -3 …). NEVER overwrite a previous dashboard, even for a "다르게/더 심플하게" iteration — each dashboard is a fresh file so the user can keep and compare versions.
-DELIVERABLE CONTENT (what goes INSIDE the file): the file must contain ONLY the real product content — title, data, KPIs, charts, insights. NEVER embed meta/process narration in the deliverable: no "…를 바탕으로 다시 구성했습니다", no description of the art direction / mood ("따뜻하고 친근하게" 등), no data-source file path, no "단일 HTML 파일…" notes, no "원하시면 다음 단계로 …" suggestions. Put ALL of that in your CHAT reply only. The art direction changes the VISUAL style (fonts/colors/shape/motion) — it must NOT leak into the copy/wording of titles or text.
-TITLE & HEADER: h1 is a concise, factual report title — a short noun phrase like a real business report heading (e.g. "브랜드 매출·고객 성과 리포트"), with NO trailing sentence/period and NO aesthetic or marketing phrasing. Keep the header compact: optional short eyebrow + short h1 + at most ONE brief subtitle line (period/scope, e.g. "2024-07 ~ 2025-06 · 고객·주문·RFM"). Do not cram sentences or a paragraph into the header. It is a report for the user to present — write it like one.
-HEADING WEIGHT: keep headings light-to-medium — do NOT make every h1/h2/h3 ultra-bold. Default h1 font-weight ~500-600, h2/h3 ~500-600 (h3 can be 500). Avoid 700/800/900 as a blanket weight; only the deliberately-bold directions (brutalist, playful) use heavy headings. Thin, refined headings read better and match report tone.
+FILE RULES (mandatory): (1) SINGLE self-contained .html file — ALL CSS inside inline <style> (via {{BCAVE_DS}} + your layout styles), JS inline too; no separate .css/.js files, no external stylesheet links (a web-font <link> and an inlined chart lib are the only allowed externals). (2) ALWAYS write to a NEW file that does not already exist (e.g. <name>.html → <name>-2.html …); NEVER overwrite a previous page/dashboard, even for a "다르게/더 심플하게" iteration — so the user can keep and compare versions.
+DELIVERABLE CONTENT: the file contains ONLY the real product content — title, data, KPIs, charts, insights. NEVER embed meta/process narration: no "…를 바탕으로 다시 구성했습니다", no design-system/mood description, no data-source file path, no "단일 HTML 파일…" notes, no "원하시면 다음 단계로 …". Put ALL of that in your CHAT reply only.
+TITLE & HEADER: h1 is a concise, factual report title — a short noun phrase (e.g. "브랜드 매출·고객 성과 리포트"), NO trailing sentence/period, NO marketing phrasing. Keep the header compact (optional short eyebrow + short h1 + at most one brief subtitle). Follow the chosen system's heading typography tokens; do not blanket-bold every heading.
 RESPONSIVE & LAYOUT (mandatory, mobile-first): always add <meta name="viewport" content="width=device-width,initial-scale=1"> and \`*{box-sizing:border-box}\`. Use fluid layouts (flex/grid with min-width:0 on children, grid tracks as minmax(0,1fr), %/rem/clamp() sizing) — never fixed px widths on containers (use max-width + width:100%). Add @media breakpoints (e.g. 640/768/1024px) so nothing overflows or breaks on mobile; media/img get max-width:100%. Long text wraps; avoid horizontal scroll. Cover UI states: hover/focus/active/disabled + loading/empty/error. After writing an HTML page, honor the export review — fix any 반응형/레이아웃 warnings before claiming done.
 For embedding spreadsheet data token-free you may still use the {{BCAVE_DATA:/abs/path#sheet}} placeholder and {{BCAVE_CHARTJS}} for inlined Chart.js — these are generic utilities, not the design system.`,
     });
@@ -140,23 +139,31 @@ For embedding spreadsheet data token-free you may still use the {{BCAVE_DATA:/ab
   }
 
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
-    // UI/대시보드 제작 요청 처리:
-    //  - 스타일·내용 스펙이 없는 첫 요청이면 만들지 말고 먼저 "어떻게 만들지" 되묻게 한다.
-    //  - 스펙이 있으면 아트 디렉션을 주입해 매번 같은 디자인(모델 기본 룩)으로 회귀하는 것을 방지.
-    const dir = directionForRequest(userMessage, this.lastWasUi);
-    this.lastWasUi = dir.isUi;
-    if (dir.isUi && dir.needsClarify) {
+    // 화면/대시보드/HTML 제작 요청 처리 — 4개 디자인 시스템 중 선택:
+    //  - 시스템이 안 정해졌으면 만들지 말고 먼저 "1~4 중 무엇으로?" 되묻는다.
+    //  - 정해졌으면 그 시스템의 규칙/컴포넌트로 조립하되, 배치는 매번 다르게(고정 틀 금지).
+    const choice = designChoiceForRequest(userMessage, this.lastSystemId, this.lastWasUi);
+    this.lastWasUi = choice.isUi;
+    if (choice.system) this.lastSystemId = choice.system.id;
+    if (choice.isUi && choice.needsChoice) {
       this.messages.push({
         role: "system",
         content:
-          "[사용자가 UI/대시보드를 요청했지만 '어떻게' 만들지(스타일/느낌)와 '무엇을' 담을지 지시가 없다. 지금 파일을 만들지 말고, 먼저 짧게 1~2가지만 되물어라: (1) 어떤 느낌/스타일로 할지(예: 심플·모던·다크·레트로 등) (2) 무엇(어떤 데이터·지표·섹션)을 담을지. 사용자가 '알아서'라고 하거나 다음 답이 모호하면 그때는 좋은 기본값으로 바로 진행.]",
+          "[사용자가 화면/대시보드/HTML 을 요청했지만 어떤 디자인 시스템으로 만들지 정하지 않았다. 지금 만들지 말고, 아래 4개 중 무엇으로 만들지 먼저 물어봐라(번호나 이름으로 답하게). '알아서'라고 하면 네가 하나 골라 진행.\n" +
+          systemsMenu() +
+          "]",
       });
-    } else if (dir.direction) {
+    } else if (choice.system) {
+      const s = choice.system;
       this.messages.push({
         role: "system",
         content:
-          `[이번 UI/대시보드는 아래 아트 디렉션으로 만들 것. 이미 정해진 방향이니 임의로 다른 스타일로 바꾸지 말고, 시각(폰트·색·모양·모션)에만 적용하고 제목·문구 카피에는 넣지 말 것. 모델 기본 룩(가운데 카드+그라디언트+글래스/파스텔)으로 회귀 금지.]\n` +
-          renderDirection(dir.direction),
+          `[이번 화면/대시보드/HTML 은 "${s.label}" 디자인 시스템으로 만들 것.\n` +
+          `- CSS 는 <style>{{BCAVE_DS:${s.id}}}</style> 로 인라인(토큰 0). 이 시스템의 토큰/컴포넌트 규칙만 사용(임의 색·폰트·값 금지).\n` +
+          `- 단일 HTML 파일(모든 CSS 인라인), 항상 새 파일명으로 저장.\n` +
+          `- 배치는 매번 다르게: 고정된 틀을 반복하지 말고 그리드·순서·강조·섹션 구성을 요청/데이터에 맞게 새로 짜라. 단 시스템 규칙(간격·타이포·색·컴포넌트)은 지킬 것.\n` +
+          s.guide +
+          `]`,
       });
     }
     this.messages.push({ role: "user", content: userMessage });

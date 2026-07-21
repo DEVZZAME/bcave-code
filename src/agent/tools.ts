@@ -5,8 +5,16 @@ import { exec } from "node:child_process";
 import { glob } from "glob";
 import XLSX from "xlsx";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
-import { readWorkbook } from "../dashboard/engine.js";
+import { DESIGN_SYSTEMS, DS_SAFETY } from "../design/systems.js";
 import type { PermissionCategory } from "./permissions.js";
+
+// 스프레드시트 로드: 텍스트(csv·tsv·txt·html)는 UTF-8 원본으로(raw), 그 외는 버퍼로.
+const _TEXT_EXT = new Set([".csv", ".tsv", ".txt", ".tab", ".html", ".htm"]);
+function readWorkbook(filePath: string): XLSX.WorkBook {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  if (_TEXT_EXT.has(ext)) return XLSX.read(fs.readFileSync(filePath, "utf8"), { type: "string", raw: true });
+  return XLSX.read(fs.readFileSync(filePath), { type: "buffer", cellDates: true });
+}
 
 // Chart.js 로드 직후 적용할 전역 기본값: 항목이 적어도 막대가 카드 폭에 꽉 늘어나지 않게 두께 상한.
 const CHARTJS_DEFAULTS =
@@ -224,6 +232,11 @@ function resolvePlaceholders(content: string, cwd: string): string {
   content = content.replace(/\{\{BCAVE_DATA:([^}]+)\}\}/g, (_m, spec) => {
     const [rawPath, sheet] = String(spec).split("#");
     return spreadsheetToJSON(path.resolve(cwd, rawPath.trim()), sheet?.trim());
+  });
+  // {{BCAVE_DS:id}} → 선택된 디자인 시스템 CSS(+안전 보정) 인라인 (토큰 0)
+  content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) => {
+    const s = DESIGN_SYSTEMS[id] ?? Object.values(DESIGN_SYSTEMS).find((x) => x.key === String(id).toLowerCase());
+    return s ? s.css + "\n" + DS_SAFETY : "";
   });
   // Chart.js 자리표시자·CDN <script> → 인라인 소스(+기본값). 완전한 단일 파일·오프라인 가능.
   if (content.includes("{{BCAVE_CHARTJS}}")) {
