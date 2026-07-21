@@ -788,6 +788,16 @@ export async function executeTool(
         return truncate(out, MAX_TOOL_CHARS);
       }
       case "shell_exec": {
+        // 산출물(HTML/대시보드)을 shell(cat/echo/python/node 등)로 직접 써서 디자인시스템·데이터·검토
+        // 파이프라인을 우회하는 것을 차단 — 반드시 write_file 로 저장해야 {{BCAVE_DS}}·{{BCAVE_DATA}} 가 적용된다.
+        const cmd = String(args.command ?? "");
+        const writesHtml =
+          /(^|[^\w])(>>?|tee)\s*[^\s|&;]*\.html\b/i.test(cmd) || // 리다이렉션/tee 로 .html 생성
+          (/(write_text|writeFileSync|writeFile|fs\.write|open\s*\([^)]*['"][wa])/i.test(cmd) && /\.html\b/i.test(cmd)) || // 프로그램적으로 .html 쓰기
+          /<!doctype html|<html[\s>]/i.test(cmd); // 명령 안에 HTML 본문이 통째로 들어있음
+        if (writesHtml) {
+          return "[차단됨] HTML/대시보드 파일을 shell(cat/echo/python/node 스크립트 등)로 직접 만들지 마세요. 반드시 write_file 도구로 저장해야 디자인 시스템 CSS(<style>{{BCAVE_DS:<id>}}</style>)·데이터 주입({{BCAVE_DATA:경로}})·자동 검토가 적용됩니다. write_file 로 <style>{{BCAVE_DS:선택된번호}}</style> 를 포함해 다시 저장하세요. (디자인 시스템이 아직 안 정해졌으면 먼저 사용자에게 1~7 중 무엇으로 할지 물어보세요.)";
+        }
         const output = await new Promise<string>((resolve) => {
           const child = exec(args.command as string, {
             cwd,

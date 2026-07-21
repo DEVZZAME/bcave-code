@@ -296,13 +296,17 @@ COMPOSITION DISCIPLINE (match the design system exactly — these are the most c
           "- UI 스타일이 필요하면 디자인 시스템 CSS(<style>{{BCAVE_DS:1}}</style> 등)를 프론트에 참고해도 되지만, 단일 인라인 HTML 규칙은 여기 적용되지 않는다(정상적인 다중 파일 프로젝트로).]",
       });
     } else if (choice.isUi && choice.needsChoice) {
-      this.messages.push({
-        role: "system",
-        content:
-          "[사용자가 화면/대시보드/HTML 을 요청했지만 어떤 디자인 시스템으로 만들지 정하지 않았다. 지금 만들지 말고, 아래 4개 중 무엇으로 만들지 먼저 물어봐라(번호나 이름으로 답하게). '알아서'라고 하면 네가 하나 골라 진행.\n" +
-          systemsMenu() +
-          "]",
-      });
+      // 디자인 시스템 선택은 하니스가 결정론적으로 질문한다(약한 모델이 '먼저 물어봐라' 지시를
+      // 무시하고 바로 만들어 버리는 문제 방지). 사용자가 번호/이름으로 답하면 다음 턴에 그 시스템으로 제작.
+      const q =
+        "이 화면/대시보드를 어떤 디자인 시스템으로 만들까요? 번호나 이름으로 답해 주세요 " +
+        "(예: `1` 또는 `비케이브`). `알아서`라고 하시면 제가 하나 고릅니다.\n\n" +
+        systemsMenu();
+      this.messages.push({ role: "user", content: userMessage });
+      this.messages.push({ role: "assistant", content: q });
+      yield { type: "text", content: q };
+      yield { type: "done" };
+      return;
     } else if (choice.system) {
       const s = choice.system;
       this.messages.push({
