@@ -1,12 +1,12 @@
-// 4개 디자인 시스템 — 사용자가 화면/대시보드/HTML 을 만들 때마다 이 중 하나를 고른다.
+// 7개 디자인 시스템 — 사용자가 화면/대시보드/HTML 을 만들 때마다 이 중 하나를 고른다.
 // 규칙(토큰·컴포넌트)은 지키되, LLM 이 매번 레이아웃을 다르게 조립한다(고정 틀 금지).
 // CSS 는 {{BCAVE_DS:<id>}} 자리표시자로 인라인(토큰 0).
 
-import { AXIS_CSS, TOSS_CSS, CLASSIC_CSS, ATELIER_CSS } from "./tokens-css.js";
+import { AXIS_CSS, TOSS_CSS, ATELIER_CSS, PRISM_CSS, PUNCH_CSS, MOCHI_CSS, MEOK_CSS } from "./tokens-css.js";
 
 export interface DesignSystem {
-  id: string; // "1".."4"
-  key: string; // axis | toss | classic | atelier
+  id: string; // "1".."7"
+  key: string; // axis | toss | atelier | prism | punch | mochi | meok
   label: string; // 선택지 표시
   css: string; // 토큰/컴포넌트 CSS
   guide: string; // 사용법(토큰형/컴포넌트형) + 배치 규칙
@@ -60,6 +60,93 @@ const ATELIER_SHELL = `.topbar{position:sticky;top:0;z-index:10;background:rgba(
 .page-head{padding:var(--space-2) 0 var(--space-10)}
 .page-head h1{font:var(--text-display-2);margin:0}
 .page-head p{color:var(--color-text-secondary);margin:var(--space-3) 0 0}`;
+const PRISM_SHELL = `:root{--easing:var(--easing-standard)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 var(--space-6) var(--space-16)}
+.topbar{position:sticky;top:12px;z-index:10;padding:0 var(--space-6)}
+.topbar-inner{ max-width:1040px;margin:0 auto;height:56px; display:flex;align-items:center;gap:var(--space-4);padding:0 var(--space-5); background:var(--glass-bg-strong);backdrop-filter:blur(var(--glass-blur)); -webkit-backdrop-filter:blur(var(--glass-blur)); border:1px solid var(--glass-border);border-radius:var(--radius-full); box-shadow:var(--glass-shadow); }
+.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px}
+.logo .mark{ width:24px;height:24px;border-radius:8px;background:var(--gradient-brand); display:flex;align-items:center;justify-content:center; }
+.logo .mark svg{display:block}
+.topbar nav{display:flex;gap:2px;margin-left:auto;overflow-x:auto}
+.topbar nav a{ color:var(--color-text-secondary);text-decoration:none;font-size:13px;font-weight:600; padding:7px 12px;border-radius:var(--radius-full);white-space:nowrap; transition:all var(--duration-fast) var(--easing); }
+.topbar nav a:hover{background:var(--color-primary-subtle);color:var(--violet-600)}
+.hero{padding:var(--space-16) 0 var(--space-12)}
+.hero .pill{ display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700; color:var(--violet-600);background:var(--glass-bg-strong); border:1px solid var(--glass-border);box-shadow:var(--glass-shadow); padding:7px 15px;border-radius:var(--radius-full);margin-bottom:var(--space-5); }
+.hero .pill i{width:6px;height:6px;border-radius:50%;background:var(--gradient-brand);font-style:normal}
+.hero h1{font-size:44px;line-height:54px;font-weight:800;letter-spacing:-0.02em}
+.hero p{color:var(--color-text-secondary);margin-top:var(--space-5);max-width:600px}
+.sec-head{margin-bottom:var(--space-6)}
+.sec-head .kicker{ display:inline-block;font-size:12px;font-weight:700; background:var(--gradient-brand-soft);color:var(--violet-600); padding:4px 12px;border-radius:var(--radius-full);margin-bottom:var(--space-2); }
+.sec-head h2{font-size:26px;line-height:34px;font-weight:800;letter-spacing:-0.02em}
+.sec-head p{color:var(--color-text-secondary);font-size:14px;margin-top:var(--space-2)}
+.grad-text{background:var(--gradient-text);-webkit-background-clip:text;background-clip:text;color:transparent}
+@media(max-width:640px){.hero h1{font-size:31px;line-height:40px}}`;
+const PUNCH_SHELL = `:root{--easing:var(--easing-standard);--bw:var(--border-width);--bw-bold:var(--border-width-bold)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 var(--space-6) var(--space-16)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--paper-50);border-bottom:var(--bw-bold) solid var(--ink-900)}
+.topbar-inner{ max-width:1040px;margin:0 auto;padding:0 var(--space-6); height:60px;display:flex;align-items:center;gap:var(--space-4); }
+.logo{display:flex;align-items:center;gap:10px;font-weight:900;font-size:17px;letter-spacing:-0.01em}
+.logo .mark{ width:28px;height:28px;background:var(--yellow-500); border:var(--bw) solid var(--ink-900);border-radius:8px; box-shadow:var(--shadow-punch-sm); display:flex;align-items:center;justify-content:center;font-size:15px; transform:var(--tilt-1); }
+.topbar nav{display:flex;gap:6px;margin-left:auto;overflow-x:auto;padding:8px 0}
+.topbar nav a{ color:var(--ink-900);text-decoration:none;font-size:13px;font-weight:800; padding:6px 12px;border:var(--bw) solid transparent;border-radius:var(--radius-full); white-space:nowrap;transition:all var(--duration-fast) var(--easing); }
+.topbar nav a:hover{border-color:var(--ink-900);background:var(--paper-0);box-shadow:var(--shadow-punch-sm)}
+.hero{padding:var(--space-16) 0 var(--space-12);position:relative}
+.hero .sticker{ display:inline-block;font-size:12px;font-weight:900;letter-spacing:.06em; background:var(--pink-500);border:var(--bw) solid var(--ink-900); border-radius:var(--radius-full);padding:6px 14px;margin-bottom:var(--space-5); box-shadow:var(--shadow-punch-sm);transform:var(--tilt-2); }
+.hero h1{font-size:46px;line-height:54px;font-weight:900;letter-spacing:-0.02em}
+.hero p{color:var(--ink-500);margin-top:var(--space-5);max-width:600px;font-weight:500}
+.sec-head{margin-bottom:var(--space-8);display:flex;align-items:baseline;gap:var(--space-4);flex-wrap:wrap}
+.sec-head .tag{ font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase; background:var(--ink-900);color:var(--paper-50); padding:5px 11px;border-radius:6px;transform:var(--tilt-1);flex-shrink:0; }
+.sec-head h2{font-size:27px;line-height:34px;font-weight:900;letter-spacing:-0.02em}
+.sec-head p{color:var(--ink-500);font-size:14px;flex-basis:100%;margin-top:2px}
+.hl{background:var(--highlight-yellow);padding:0 3px}
+.hl-pink{background:var(--highlight-pink);padding:0 3px}
+@media(max-width:640px){.hero h1{font-size:32px;line-height:40px}}`;
+const MOCHI_SHELL = `:root{--easing:var(--easing-standard);--font-display:var(--font-family-display)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 var(--space-6) var(--space-16)}
+.topbar{position:sticky;top:12px;z-index:10;padding:0 var(--space-6)}
+.topbar-inner{ max-width:1040px;margin:0 auto;height:58px; display:flex;align-items:center;gap:var(--space-4);padding:0 var(--space-5); background:var(--cream-0);border-radius:var(--radius-full); box-shadow:var(--shadow-2); }
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-size:18px;letter-spacing:.02em}
+.logo .blob{ width:32px;height:32px;background:var(--peach-500); border-radius:var(--radius-blob);position:relative;flex-shrink:0; transition:transform var(--duration-base) var(--easing-bounce); }
+.logo:hover .blob{transform:rotate(-8deg) scale(1.1)}
+.logo .blob::before{ content:"";position:absolute;top:12px;left:8px;width:4px;height:5px; background:var(--cocoa-900);border-radius:50%; box-shadow:12px 0 0 var(--cocoa-900); }
+.logo .blob::after{ content:"";position:absolute;top:19px;left:5px;width:5px;height:3px; background:rgba(255,255,255,.55);border-radius:50%; box-shadow:17px 0 0 rgba(255,255,255,.55); }
+.topbar nav{display:flex;gap:4px;margin-left:auto;overflow-x:auto}
+.topbar nav a{ color:var(--cocoa-700);text-decoration:none;font-size:13px;font-weight:700; padding:8px 13px;border-radius:var(--radius-full);white-space:nowrap; transition:all var(--duration-fast) var(--easing); }
+.topbar nav a:hover{background:var(--peach-100);color:var(--peach-700)}
+.hero{padding:var(--space-16) 0 var(--space-12);position:relative;overflow:hidden}
+.hero .pill{ display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:800; color:var(--peach-700);background:var(--peach-100); padding:8px 16px;border-radius:var(--radius-full);margin-bottom:var(--space-5); }
+.hero h1{font-size:42px;line-height:56px}
+.hero h1 em{font-style:normal;color:var(--peach-600)}
+.hero p{color:var(--cocoa-700);margin-top:var(--space-5);max-width:590px}
+.hero .deco{position:absolute;border-radius:var(--radius-blob);opacity:.5;pointer-events:none}
+.hero .d1{width:120px;height:120px;background:var(--mint-100);right:40px;top:40px;animation:float 7s ease-in-out infinite}
+.hero .d2{width:76px;height:76px;background:var(--butter-100);right:190px;top:150px;animation:float 9s ease-in-out infinite reverse}
+.hero .d3{width:56px;height:56px;background:var(--lavender-100);right:90px;top:210px;animation:float 8s ease-in-out infinite}
+.sec-head{margin-bottom:var(--space-6);display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap}
+.sec-head .dot{ width:14px;height:14px;background:var(--peach-500); border-radius:var(--radius-blob);flex-shrink:0; }
+.sec-head h2{font-size:26px;line-height:34px}
+.sec-head p{color:var(--cocoa-700);font-size:14px;flex-basis:100%;margin-top:2px;padding-left:26px}
+@media(max-width:640px){.hero h1{font-size:30px;line-height:42px} .hero .deco{display:none}}`;
+const MEOK_SHELL = `:root{--easing:var(--easing-standard);--font-display:var(--font-family-display)}
+.wrap{max-width:1000px;margin:0 auto;padding:0 var(--space-6) var(--space-20)}
+.topbar{position:sticky;top:0;z-index:10;background:rgba(245,240,228,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--meok-100)}
+.topbar-inner{ max-width:1000px;margin:0 auto;padding:0 var(--space-6); height:58px;display:flex;align-items:center;gap:var(--space-4); }
+.logo{display:flex;align-items:center;gap:11px;font-family:var(--font-display);font-weight:700;font-size:17px;letter-spacing:.24em}
+.logo .seal{width:30px;height:30px;font-size:15px}
+.topbar nav{display:flex;gap:2px;margin-left:auto;overflow-x:auto}
+.topbar nav a{ color:var(--meok-500);text-decoration:none;font-size:13px;font-weight:500; padding:7px 12px;border-radius:var(--radius-sm);white-space:nowrap; transition:color var(--duration-fast) var(--easing); }
+.topbar nav a:hover{color:var(--jjok-500)}
+.hero{padding:var(--space-20) 0 var(--space-16);display:flex;gap:var(--space-8)}
+.hero .vlabel{ writing-mode:vertical-rl;font-size:12px;letter-spacing:.4em; color:var(--meok-300);border-left:1px solid var(--meok-100); padding-left:var(--space-3);flex-shrink:0;font-weight:500; }
+.hero .body h1{font-size:38px;line-height:1.55;letter-spacing:.01em}
+.hero .body h1 .seal{width:34px;height:34px;font-size:16px;vertical-align:-4px;margin-left:10px}
+.hero .body p{color:var(--meok-500);margin-top:var(--space-6);max-width:580px;font-size:15px;line-height:1.85}
+.sec-head{display:flex;gap:var(--space-5);align-items:flex-start;margin-bottom:var(--space-8)}
+.sec-head .vlabel{ writing-mode:vertical-rl;font-size:11px;letter-spacing:.35em;font-weight:500; color:var(--inju-500);border-left:2px solid var(--inju-500); padding:2px 0 2px 8px;flex-shrink:0;min-height:52px; }
+.sec-head h2{font-size:24px;line-height:1.5}
+.sec-head p{color:var(--meok-500);font-size:13.5px;margin-top:var(--space-2);line-height:1.75}
+.seal{display:inline-flex;align-items:center;justify-content:center;background:var(--inju-500);color:var(--hanji-0);font-family:var(--font-display);font-weight:700;border-radius:6px;box-shadow:inset 0 0 0 1.5px rgba(251,248,241,.35);flex-shrink:0}
+@media(max-width:640px){.hero{flex-direction:column;gap:var(--space-5)} .hero .vlabel{writing-mode:horizontal-tb;border-left:none;border-top:1px solid var(--meok-100);padding:var(--space-2) 0 0} .hero .body h1{font-size:28px}}`;
 const SHELL_NOTE = "\n표준 셸(모든 페이지 공통 — 빼거나 새로 만들지 말 것): <body> 안에 GNB <div class=\"topbar\"><div class=\"topbar-inner\"><div class=\"logo\">제품/서비스명</div><nav><a href=\"#\">메뉴1</a><a href=\"#\">메뉴2</a>…</nav></div></div> 다음에 <main class=\"wrap\"><div class=\"page-head\"><h1>제목</h1><p>부제</p></div> …내용… </main>. GNB·.wrap·.page-head 는 이 시스템 모든 화면의 고정 크롬이다.\n섹션 헤더 규칙(디자인 시스템 시그니처 — 반드시 지킬 것): 각 주요 섹션은 <div class=\"sec-head\"> 로 시작한다. 그 안에 (1)영문 오버라인(예: OVERVIEW / PRINCIPLES / TRENDS / DETAILS — 대문자 짧은 영단어) (2)국문 제목 h2 (3)그 아래 얇은 구분선. 구분선·틱은 CSS가 자동으로 그린다(AXIS는 sec-head 자체가, ATELIER는 <div class=\"hairline\"></div> 를 마지막에 넣어야 함 — 각 가이드 마크업 참고). 페이지 최상단(page-head 대신 더 강조하고 싶으면)에는 히어로 <div class=\"hero\"> 를 둘 수 있다: 오버라인/뱃지 + 큰 제목(강조 단어는 <em>) + 설명 한 줄. 콘텐츠 배치는 매번 달라도, 이 오버라인+제목+구분선 헤더 패턴은 모든 섹션에서 동일하게 유지한다.";
 
 const AXIS_GUIDE = `AXIS — 밝은 코발트 · 웹 플랫폼/대시보드 (모던 프로페셔널). 컴포넌트 클래스가 없는 "토큰형" — 아래 CSS 변수로 컴포넌트를 직접 만든다.
@@ -92,29 +179,68 @@ const TOSS_GUIDE = `TOSS — 밝은 배경·둥근 카드·파란 강조 (토스
 - 팁 .ds-tip · 알림 .ds-noti(.ds-noti-icon/.ds-noti-title/.ds-noti-body) · 피드 .ds-feed/.ds-feed-item · 상품 .ds-prod(.ds-prod-img/.ds-prod-body/.ds-prod-cat/.ds-prod-name/.ds-prod-price) · 리포트 .ds-report/.ds-quote/.ds-tag
 - 차트는 높이 고정 컨테이너(position:relative;height:280px)+ maintainAspectRatio:false. 팔레트 파랑 계열(#3182F6…). Pretendard <link> 필요.`;
 
-const CLASSIC_GUIDE = `CLASSIC — 흰 종이·괘선·먹색+옐로 문서/보고서형. "컴포넌트형" — .rp-* 클래스. body class="rp-body", 종이 .rp-page>.rp-inner.
-- 표제부 .rp-titleblock/.rp-doc-type/.rp-title/.rp-subtitle · 번호 섹션 .rp-section>.rp-sec-head(.rp-sec-no/.rp-sec-title/.rp-sec-en) · 소제목 .rp-subsec · 본문 .rp-text(b 강조)
-- 요약 .rp-summary(.rp-summary-label,ul>li) · 시사점 .rp-insight(.rp-insight-label)
-- KPI 스트립 .rp-kpi-strip>div(.rp-kpi-l/.rp-kpi-v(small.pos|neg)/.rp-kpi-s)
-- 그림(차트) .rp-fig>.rp-fig-head(.rp-fig-title/.rp-fig-no/.rp-fig-unit)>.rp-fig-body · 표 .rp-tbl(tr.total/tr.hl/.up/.down/.muted, .rp-tbl-note)
-- 100% 스택바 .rp-stack + .rp-stack-legend · 액션표 .rp-action-tbl + .rp-prio.h|m|l · 그리드 .rp-grid-2 / .rp-grid-53 · 푸터 .rp-footer
-- 강조 옐로는 문서당 소수만. 차트는 저채도(먹색#2B3138/옐로#F5C400). Pretendard <link> 필요.`;
+// 토큰형(prism/punch/mochi/meok) 공통 셸 노트 — 히어로/섹션 헤더 마크업은 각 가이드 예시를 따른다.
+const SHELL_NOTE_TOKEN =
+  "\n표준 셸(모든 페이지 공통 — 빼지 말 것): <body> 안에 GNB <div class=\"topbar\"><div class=\"topbar-inner\"><div class=\"logo\">제품/서비스명</div><nav><a href=\"#\">메뉴1</a><a href=\"#\">메뉴2</a>…</nav></div></div> 이어서 <main class=\"wrap\"> …내용… </main>. 페이지 최상단엔 히어로 <div class=\"hero\">…</div>, 각 주요 섹션은 <div class=\"sec-head\">…</div> 헤더로 시작한다. topbar·wrap·hero·sec-head 는 이 시스템의 고정 크롬이다 — hero/sec-head 안의 정확한 마크업(뱃지·라벨 클래스 등)은 위 가이드의 '히어로/섹션 헤더' 예시를 그대로 쓴다. 콘텐츠 배치만 매번 다르게, 셸·헤더 패턴은 모든 화면에서 동일하게 유지한다.";
+
+const PRISM_GUIDE = `PRISM — 글래스모피즘 · 바이올렛 그라디언트 · 반투명 유리 표면 (트렌디/화려). 컴포넌트 클래스 없는 "토큰형".
+- 색: 배경 var(--color-bg)(밝은 뉴트럴, 오로라 그라디언트를 깔면 유리가 산다) · 강조 var(--color-primary)(바이올렛)/var(--violet-600) · 텍스트 var(--color-text-primary|secondary)
+- 유리 표면: background:var(--glass-bg)|var(--glass-bg-strong) + border:1px solid var(--glass-border) + box-shadow:var(--glass-shadow) + backdrop-filter:blur(var(--glass-blur))
+- 그라디언트: var(--gradient-brand)/var(--gradient-brand-soft)/var(--gradient-text)(글자 그라디언트)
+- 타이포 font: var(--text-display-1|heading-1|body-1|…)(제목 800), 지표 var(--text-data-*). 필 라운드 var(--radius-full), 간격 var(--space-*), 차트 var(--chart-1..8)
+- body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Pretendard <link> 필요.
+- 예) 유리 카드: <div style="background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:var(--radius-lg);padding:var(--card-padding)">…</div>
+- 히어로: <div class="hero"><span class="pill"><i></i>짧은 라벨</span><h1>핵심 메시지<br><span class="grad-text">강조 줄</span></h1><p>설명</p></div>  (pill=유리 알약 뱃지, grad-text=그라디언트 글자)
+- 섹션 헤더(모든 섹션 필수): <div class="sec-head"><span class="kicker">OVERVIEW</span><h2>국문 제목</h2></div>  (kicker=그라디언트 필 뱃지)`;
+
+const PUNCH_GUIDE = `PUNCH — 네오 브루탈리즘 · 잉크 보더 · 블러 없는 하드 섀도 · 고채도 (에너지/젊음). 컴포넌트 클래스 없는 "토큰형".
+- 색: 종이 var(--color-bg)/표면 var(--color-surface) · 잉크 var(--ink-900)(텍스트·보더) · 프라이머리는 배경색 var(--color-primary)(옐로 — 그 위 텍스트는 잉크) · 핑크 var(--pink-500) · 보조 텍스트 var(--ink-500)
+- 보더/그림자: border:var(--bw)|var(--bw-bold) solid var(--ink-900), 블러 없는 하드 섀도 var(--shadow-punch-sm|md|lg), 살짝 기울임 transform:var(--tilt-1|2)
+- 타이포 최대 웨이트(800~900) font: var(--text-*). 하이라이트 <span class="hl">(옐로)/<span class="hl-pink">(핑크). 필 뱃지엔 var(--radius-full), 간격 var(--space-*), 차트 var(--chart-1..8)(플랫 고채도)
+- body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Pretendard <link> 필요.
+- 예) 카드: <div style="background:var(--color-surface);border:var(--bw) solid var(--ink-900);border-radius:10px;box-shadow:var(--shadow-punch-md);padding:var(--card-padding)">…</div>
+- 히어로: <div class="hero"><span class="sticker">짧은 라벨</span><h1>데이터가 <span class="hl">소리치게</span></h1><p>설명</p></div>  (sticker=핑크 스티커 뱃지)
+- 섹션 헤더(모든 섹션 필수): <div class="sec-head"><span class="tag">PRINCIPLES</span><h2>국문 제목</h2></div>  (tag=잉크색 대문자 뱃지)`;
+
+const MOCHI_GUIDE = `MOCHI — 파스텔 · 풀 라운드/블롭 · 통통 튀는 모션 (귀여움/캐주얼). 컴포넌트 클래스 없는 "토큰형".
+- 색: 크림 배경 var(--color-bg)/표면 var(--color-surface) · 피치 강조 var(--color-primary)/var(--peach-600|700) · 텍스트 var(--color-text-primary)(코코아)/보조 var(--cocoa-700) · 파스텔 var(--mint-100)/var(--butter-100)/var(--lavender-100)
+- 타이포: 제목 폰트 var(--font-family-display)(Jua, 둥근 손글씨), 본문 var(--font-family-base). font: var(--text-*)
+- 형태: 풀 라운드 var(--radius-full)·블롭 var(--radius-blob), 부드러운 그림자 var(--shadow-1|2), 바운스 var(--easing-bounce). 검정·직각은 쓰지 말 것. 간격 var(--space-*), 차트 var(--chart-1..8)(파스텔)
+- body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Pretendard + Jua <link> 필요.
+- 예) 카드: <div style="background:var(--color-surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);padding:var(--card-padding)">…</div>
+- 히어로: <div class="hero"><span class="pill">🍡 짧은 라벨</span><h1>숫자도 <em>말랑하게</em></h1><p>설명</p></div>  (pill=피치 알약, em=피치 강조)
+- 섹션 헤더(모든 섹션 필수): <div class="sec-head"><span class="dot"></span><h2>국문 제목</h2></div>  (dot=피치 블롭 점)`;
+
+const MEOK_GUIDE = `MEOK — 한국 전통 지물 · 먹 농담 · 한지+인주(붉은) 괘선 · 세로 레이블 (헤리티지/차분). 컴포넌트 클래스 없는 "토큰형".
+- 색: 한지 배경 var(--color-bg)/표면 var(--color-surface) · 먹 농담 위계 var(--meok-900|700|500|300)(텍스트) · 쪽(藍) var(--jjok-500)(강조·링크) · 인주(붉은) var(--inju-500)(도장·괘선 포인트)
+- 타이포: 제목은 세리프 var(--font-family-display)(Gowun Batang), 본문 var(--font-family-base). font: var(--text-*), 넉넉한 행간
+- 형태: 절제된 라운드 var(--radius-sm), 붉은 괘선(인찰지) 그리드, 낙관 도장 <span class="seal">墨</span>(인주 배경). 세로쓰기 레이블 writing-mode:vertical-rl. 간격 var(--space-*), 차트 var(--chart-1..8)(전통색 저채도)
+- body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Gowun Batang + Pretendard <link> 필요.
+- 예) 카드: <div style="background:var(--color-surface);border:1px solid var(--meok-100);padding:var(--card-padding)">…</div>
+- 히어로: <div class="hero"><div class="vlabel">세로 레이블</div><div class="body"><h1>핵심 메시지<span class="seal">墨</span></h1><p>설명</p></div></div>  (vlabel=세로쓰기, seal=인주 도장)
+- 섹션 헤더(모든 섹션 필수): <div class="sec-head"><div class="vlabel">원칙</div><div><h2>국문 제목</h2></div></div>  (vlabel=인주 세로 레이블)`;
 
 export const DESIGN_SYSTEMS: Record<string, DesignSystem> = {
   "1": { id: "1", key: "axis", label: "1. AXIS — 밝은 코발트 · 모던 프로페셔널 (웹/대시보드, 토큰형)", css: AXIS_CSS + "\n" + AXIS_SHELL, guide: AXIS_GUIDE + SHELL_NOTE },
   "2": { id: "2", key: "toss", label: "2. TOSS — 밝은 배경 · 둥근 카드 · 파란 강조 (토스풍)", css: TOSS_CSS, guide: TOSS_GUIDE },
-  "3": { id: "3", key: "classic", label: "3. CLASSIC — 흰 종이 · 괘선 · 먹색+옐로 (문서/보고서형)", css: CLASSIC_CSS, guide: CLASSIC_GUIDE },
-  "4": { id: "4", key: "atelier", label: "4. ATELIER — 다크 에디토리얼 · 골드+세리프 (고급/차분)", css: ATELIER_CSS + "\n" + ATELIER_SHELL, guide: ATELIER_GUIDE + SHELL_NOTE },
+  "3": { id: "3", key: "atelier", label: "3. ATELIER — 다크 에디토리얼 · 골드+세리프 (고급/차분)", css: ATELIER_CSS + "\n" + ATELIER_SHELL, guide: ATELIER_GUIDE + SHELL_NOTE },
+  "4": { id: "4", key: "prism", label: "4. PRISM — 글래스모피즘 · 바이올렛 그라디언트 · 유리 (트렌디/화려)", css: PRISM_CSS + "\n" + PRISM_SHELL, guide: PRISM_GUIDE + SHELL_NOTE_TOKEN },
+  "5": { id: "5", key: "punch", label: "5. PUNCH — 네오 브루탈리즘 · 잉크 보더 · 옐로/핑크 (에너지/젊음)", css: PUNCH_CSS + "\n" + PUNCH_SHELL, guide: PUNCH_GUIDE + SHELL_NOTE_TOKEN },
+  "6": { id: "6", key: "mochi", label: "6. MOCHI — 파스텔 · 풀 라운드 · 통통 튀는 (귀여움/캐주얼)", css: MOCHI_CSS + "\n" + MOCHI_SHELL, guide: MOCHI_GUIDE + SHELL_NOTE_TOKEN },
+  "7": { id: "7", key: "meok", label: "7. MEOK — 한국 전통 · 먹 농담 · 한지+인주 · 세로 레이블 (헤리티지/차분)", css: MEOK_CSS + "\n" + MEOK_SHELL, guide: MEOK_GUIDE + SHELL_NOTE_TOKEN },
 };
 
 const ALIAS: Record<string, string> = {
   "1": "1", "1번": "1", axis: "1", 액시스: "1",
   "2": "2", "2번": "2", toss: "2", 토스: "2",
-  "3": "3", "3번": "3", classic: "3", 클래식: "3", 보고서: "3",
-  "4": "4", "4번": "4", atelier: "4", 아틀리에: "4", 다크: "4",
+  "3": "3", "3번": "3", atelier: "3", 아틀리에: "3", 다크: "3",
+  "4": "4", "4번": "4", prism: "4", 프리즘: "4", 글래스: "4", 유리: "4",
+  "5": "5", "5번": "5", punch: "5", 펀치: "5", 브루탈: "5",
+  "6": "6", "6번": "6", mochi: "6", 모찌: "6", 파스텔: "6",
+  "7": "7", "7번": "7", meok: "7", 먹: "7", 한지: "7", 전통: "7",
 };
 
-/** 메시지에서 디자인 시스템 선택(1~4 / 이름)을 찾는다. 없으면 null. */
+/** 메시지에서 디자인 시스템 선택(1~7 / 이름)을 찾는다. 없으면 null. */
 export function findSystem(message?: string): DesignSystem | null {
   if (!message) return null;
   const m = message.toLowerCase();
@@ -126,12 +252,12 @@ export function findSystem(message?: string): DesignSystem | null {
   return null;
 }
 
-/** 4개 선택지 목록(되묻기용). */
+/** 7개 선택지 목록(되묻기용). */
 export function systemsMenu(): string {
   return Object.values(DESIGN_SYSTEMS).map((s) => "  " + s.label).join("\n");
 }
 
-// "알아서"일 때 4개를 순환 배정(매번 다른 시스템).
+// "알아서"일 때 7개를 순환 배정(매번 다른 시스템).
 let _lastAuto = "";
 export function rotateSystem(): DesignSystem {
   const ids = Object.keys(DESIGN_SYSTEMS).filter((i) => i !== _lastAuto);
