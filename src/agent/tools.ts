@@ -74,15 +74,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "write_file",
-      description: "Create or overwrite a file. For an active-design-system HTML dashboard, pass body and app_script as separate raw strings (no code fences and no complete HTML). For every other file, pass content.",
+      description: "Create or overwrite a file. For a standalone active-design-system HTML artifact, pass body and app_script as separate raw strings. For application files such as TSX/JSX/CSS, pass content and follow the active design-system assets and tokens.",
       parameters: {
         type: "object",
         properties: {
           path: { type: "string", description: "File path relative to working directory" },
-          content: { type: "string", description: "Regular file content. Do not use for active-design-system HTML dashboards." },
+          content: { type: "string", description: "Regular application/file content. Do not use only for standalone active-design-system HTML artifacts." },
           body: { type: "string", description: "Dashboard <body> inner markup only, without <body>, <style>, or code fences." },
           app_script: { type: "string", description: "Dashboard data injection and application JavaScript only, without <script> or code fences." },
-          design_system: { type: "string", enum: designSystemNames(), description: "Design system for an HTML dashboard. Use the system selected by the user." },
+          design_system: { type: "string", enum: designSystemNames(), description: "Design system for a standalone HTML artifact. Application code uses the active system through shared CSS assets instead." },
         },
         required: ["path"],
       },

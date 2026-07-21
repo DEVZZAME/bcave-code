@@ -22,7 +22,7 @@ export interface BcaveConfig {
   verifyCmds: string[]; // 검증 명령 직접 지정(비면 package.json 스크립트에서 자동 감지)
   maxVerifyRounds: number; // 자동 검증-수정 반복 최대 횟수
   smokeTest: boolean; // 앱 생성 후 서버를 실제로 띄워 HTTP 응답(헬스체크)까지 확인
-  designSystem: string; // 대시보드/UI 산출물에 적용할 디자인 시스템(빈 문자열이면 비활성)
+  designSystem: string; // 대시보드와 서비스의 모든 웹 UI에 적용할 디자인 시스템(빈 문자열이면 비활성)
 
   // ── 레거시/폴백: 직접 OpenAI 키 사용 ──
   apiKey: string;

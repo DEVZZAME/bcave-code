@@ -11,7 +11,7 @@ import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel, classifyTask } from "./router.js";
 import { isAppBuild } from "./request-classification.js";
-import { designRules, designSystemNames, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
+import { designRules, designSystemDir, designSystemNames, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
 import { hubRefresh } from "../auth/hub.js";
 
 const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|py|go|rs|java|rb|php|cs|kt|swift|scss|sass|less|css|json|astro)$/i;
@@ -277,11 +277,21 @@ COMPOSITION DISCIPLINE:
     let requestedSystem = systems.find((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(withoutPaths)) || "";
     if (!requestedSystem && /비케이브/.test(withoutPaths) && systems.includes("bcave")) requestedSystem = "bcave";
     if (!requestedSystem && /액시스/.test(withoutPaths) && systems.includes("axis")) requestedSystem = "axis";
-    if (!requestedSystem && this.pendingDesignChoice && /^[12](?:번)?$/.test(withoutPaths.trim())) {
+    const pendingChoiceAnswer = this.pendingDesignChoice && /^[12](?:번)?$/.test(withoutPaths.trim());
+    if (!requestedSystem && pendingChoiceAnswer) {
       requestedSystem = withoutPaths.trim().startsWith("1") ? "bcave" : "axis";
       if (!systems.includes(requestedSystem)) requestedSystem = "";
     }
-    const uiRequest = !appBuild && (isUiArtifactRequest(userMessage) || this.pendingDesignChoice);
+    const directUiRequest = !appBuild && isUiArtifactRequest(userMessage);
+    // 디자인 선택을 기다리던 중 포트·서버·파일 등 다른 요청이 들어오면 더 이상 가로채지 않는다.
+    if (this.pendingDesignChoice && !pendingChoiceAnswer && !directUiRequest) {
+      this.pendingDesignChoice = false;
+    }
+    const uiRequest = directUiRequest || Boolean(pendingChoiceAnswer);
+    // 서비스와 UI 산출물 모두 설정된 시스템을 기본 적용한다. 명시한 BCAVE/AXIS가 항상 우선한다.
+    if (!requestedSystem && (appBuild || uiRequest) && hasDesignSystem(this.config.designSystem)) {
+      requestedSystem = this.config.designSystem;
+    }
     if (uiRequest && !requestedSystem) {
       this.pendingDesignChoice = true;
       const q = "이 대시보드/화면에 사용할 디자인 시스템을 선택해 주세요: `1 BCAVE` 또는 `2 AXIS`.";
@@ -294,6 +304,23 @@ COMPOSITION DISCIPLINE:
     if (requestedSystem) {
       this.selectedDesignSystem = requestedSystem;
       this.pendingDesignChoice = false;
+    }
+    if (appBuild && hasDesignSystem(this.selectedDesignSystem)) {
+      const selected = this.selectedDesignSystem;
+      const assets = designSystemDir(selected);
+      this.messages.push({
+        role: "system",
+        content:
+          `[이 서비스의 모든 웹 UI는 ${selected.toUpperCase()} 디자인 시스템을 반드시 사용한다. 대시보드에만 적용되는 선택 규칙이 아니다.]\n` +
+          designRules(selected) +
+          `\n\n[애플리케이션 적용 계약 — 위 RULES의 정적 HTML 출력 계약보다 이 항목이 우선한다.]\n` +
+          `- 대상: 로그인, 목록, 상세, 폼, 설정, 관리자 페이지 등 모든 화면과 공통 컴포넌트. API/DB 같은 비시각 코드만 제외한다.\n` +
+          `- 현재 프레임워크(React/Next/Vue 등), 라우팅, 컴포넌트 구조를 유지한다. TSX/JSX와 일반 코드 파일은 write_file의 content 필드로 작성한다. body/app_script/design_system 필드는 단일 HTML 산출물에만 쓴다.\n` +
+          `- 원본 자산은 ${assets}/${selected}-tokens.css 와 ${assets}/${selected}-ui.css 이다. UI를 쓰기 전에 두 파일을 읽고, 프로젝트 내부의 공용 스타일 위치로 그대로 복사해 전역에서 한 번 import한다. 이미 복사되어 있으면 중복 생성하지 말고 기존 파일을 재사용한다.\n` +
+          `- JSX에서는 제공 마크업의 class를 className으로 변환해 사용한다. 제공된 토큰·클래스·컴포넌트 패턴을 우선하며 별도 색상 팔레트, 임의 hex/rgb, gradient, 임의 그림자·radius, Tailwind arbitrary value로 자체 디자인 시스템을 만들지 않는다.\n` +
+          `- 필요한 클래스가 없으면 먼저 원본 ui.css의 기존 조합으로 해결한다. 정말 필요한 앱 전용 레이아웃 CSS만 별도 파일에 최소 추가하고, 색상·타이포·간격·radius 값은 반드시 ${selected}-tokens.css 변수만 참조한다.\n` +
+          `- 기존 화면을 수정할 때도 해당 화면만 독자적인 스타일로 남기지 말고 공통 ${selected.toUpperCase()} 셸, 내비게이션, 버튼, 폼, 테이블 패턴에 맞춘다. 완료 전 변경된 모든 UI 파일이 이 계약을 따르는지 점검한다.`,
+      });
     }
     if (uiRequest && hasDesignSystem(this.selectedDesignSystem)) {
       const selected = this.selectedDesignSystem;
