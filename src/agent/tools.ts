@@ -165,8 +165,10 @@ function readSpreadsheet(filePath: string, displayPath: string): string {
     const range = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : null;
     const rows = range ? range.e.r - range.s.r + 1 : 0;
     const cols = range ? range.e.c - range.s.c + 1 : 0;
+    const { columns } = sheetToObjects(ws); // window.__DATA 에 실제로 담길 컬럼명(제목행 스킵 반영)
+    const colLine = columns.length ? `# 실제 컬럼(각 행 객체의 키): ${columns.join(", ")}\n` : "";
     const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
-    if (csv.trim()) parts.push(`# 시트: ${name} (약 ${rows}행 × ${cols}열)\n${csv}`);
+    if (csv.trim()) parts.push(`# 시트: ${name} (약 ${rows}행 × ${cols}열)\n${colLine}${csv}`);
   }
   const body = parts.join("\n\n") || "(빈 스프레드시트)";
   // 컬럼·값을 파악하는 용도. 전체 데이터를 결과물에 넣을 땐 손으로 옮기거나 스크립트를 쓰지 말고
@@ -178,12 +180,42 @@ function readSpreadsheet(filePath: string, displayPath: string): string {
   return header + truncate(body, MAX_READ_CHARS, "표가 큼(앞부분만)");
 }
 
+/** 시트에서 진짜 헤더 행을 찾아 행 객체 배열로 변환.
+ *  많은 엑셀이 1행에 제목/부제(병합셀)를 두고 실제 컬럼명은 2~3행에 둔다 —
+ *  그대로 sheet_to_json 하면 헤더가 "__EMPTY" 로 깨지므로, 앞쪽에서 "거의 꽉 찬" 첫 행을 헤더로 본다. */
+function sheetToObjects(ws: XLSX.WorkSheet): { columns: string[]; rows: Record<string, unknown>[] } {
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, raw: false, blankrows: false });
+  if (!aoa.length) return { columns: [], rows: [] };
+  const nonEmpty = (r: unknown[]) => r.filter((c) => c !== null && c !== undefined && String(c).trim() !== "").length;
+  const maxCols = Math.max(...aoa.map(nonEmpty));
+  // 헤더 = 앞 10행 중 처음으로 "거의 꽉 찬"(≥80%) 행. 그 위(제목/부제)는 건너뛴다.
+  let h = 0;
+  for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+    if (nonEmpty(aoa[i]) >= Math.max(2, Math.ceil(maxCols * 0.8))) { h = i; break; }
+  }
+  const seen: Record<string, number> = {};
+  const columns = (aoa[h] || []).map((c, i) => {
+    let k = c == null || String(c).trim() === "" ? `열${i + 1}` : String(c).trim();
+    if (seen[k] != null) { seen[k]++; k = `${k}_${seen[k]}`; } else seen[k] = 0;
+    return k;
+  });
+  const rows: Record<string, unknown>[] = [];
+  for (let r = h + 1; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    if (nonEmpty(row) === 0) continue;
+    const obj: Record<string, unknown> = {};
+    for (let c = 0; c < columns.length; c++) obj[columns[c]] = row[c] ?? null;
+    rows.push(obj);
+  }
+  return { columns, rows };
+}
+
 /** 스프레드시트를 행 객체 JSON 배열로 (자리표시자 {{BCAVE_DATA}} 치환용). 날짜는 실제 날짜로 변환. */
 function spreadsheetToJSON(filePath: string, sheet?: string): string {
   try {
     const wb = readWorkbook(filePath); // 텍스트(csv·tsv·txt·html)·바이너리(엑셀) 모두 지원
     const name = sheet && wb.Sheets[sheet] ? sheet : wb.SheetNames[0];
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: null, raw: false });
+    const { rows } = sheetToObjects(wb.Sheets[name]); // 제목행 자동 스킵 → 실제 컬럼명으로 키잉
     return JSON.stringify(rows.slice(0, 100_000));
   } catch {
     return "[]";
