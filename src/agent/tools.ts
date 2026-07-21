@@ -257,6 +257,22 @@ function resolvePlaceholders(content: string, cwd: string): string {
   return content;
 }
 
+/** HTML 을 read_file 로 볼 때, 대용량 인라인(라이브러리·데이터 JSON)을 짧은 마커로 접는다.
+ *  이유: 이미 생성된 대시보드를 수정할 때 거대한 데이터/차트 라이브러리가 읽기 한도(40K)를
+ *  다 잡아먹어 정작 레이아웃을 못 보고, 데이터를 재현하려다 비워버리는 문제를 막는다.
+ *  마커에 자리표시자 사용법을 남겨 수정 시 데이터가 자동 재주입되도록 유도한다. */
+function collapseHeavyScripts(html: string): string {
+  return html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (m, attrs, js: string) => {
+    if (js.length <= 8000) return m; // 손으로 쓴 차트 설정 등은 그대로 보이게
+    const head = js.slice(0, 300);
+    const isLib = /Chart\.js v\d|@license|@preserve/.test(head) || /^\s*\/\*!/.test(head);
+    const note = isLib
+      ? "Chart.js 라이브러리 인라인 — 저장 시 <script>{{BCAVE_CHARTJS}}</script> 로 다시 넣으세요"
+      : `대용량 인라인 데이터/스크립트 약 ${js.length.toLocaleString()}자 생략 — 데이터는 직접 재현·복사하지 말고 저장 시 {{BCAVE_DATA:원본 스프레드시트 경로#시트}} 자리표시자로 다시 주입하세요(경로는 이전과 동일)`;
+    return `<script${attrs}>/* [${note}] */</script>`;
+  });
+}
+
 // 내보내기 전 HTML 자동 검토: 데이터 누락·자리표시자·인라인 스크립트 문법 오류를 잡는다.
 function reviewHtml(content: string, filePath: string): string[] {
   if (!/\.html?$/i.test(filePath)) return [];
@@ -477,6 +493,11 @@ export async function executeTool(
         // 이미지 등 바이너리는 원문을 내보내지 않는다 (화면 깨짐·토큰 낭비 방지).
         if (looksBinary(content)) {
           return `[바이너리 파일이라 텍스트로 열 수 없습니다: ${args.path}\n(이미지/압축/실행 파일 등은 내용을 직접 읽을 수 없습니다. 필요하면 어떤 데이터인지 사용자에게 물어보거나 적절한 도구/라이브러리로 처리하세요.)]`;
+        }
+        // 생성된 대시보드 HTML: 대용량 인라인(라이브러리·데이터)을 접어 레이아웃이 온전히 보이게 하고,
+        // 수정 시 데이터를 {{BCAVE_DATA:경로}} 로 재주입하도록 유도한다.
+        if (ext === ".html" || ext === ".htm") {
+          content = collapseHeavyScripts(content);
         }
         return truncate(content, MAX_READ_CHARS, partial ? "파일이 큼(앞부분만)" : "파일이 큼");
       }
