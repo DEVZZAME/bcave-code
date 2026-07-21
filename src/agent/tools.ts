@@ -5,6 +5,7 @@ import { exec } from "node:child_process";
 import { glob } from "glob";
 import XLSX from "xlsx";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
+import { BCAVE_LOGO } from "../assets/bcave-logo.js";
 import { DESIGN_SYSTEMS, DS_SAFETY } from "../design/systems.js";
 import type { PermissionCategory } from "./permissions.js";
 
@@ -433,6 +434,8 @@ function resolvePlaceholders(content: string, cwd: string): string {
     const [rawPath, sheet] = String(spec).split("#");
     return spreadsheetToJSON(path.resolve(cwd, rawPath.trim()), sheet?.trim());
   });
+  // {{BCAVE_LOGO}} → B.CAVE 브랜드 CI 로고 SVG 인라인 (색/크기는 .bcave-logo CSS 로 제어)
+  content = content.split("{{BCAVE_LOGO}}").join(BCAVE_LOGO);
   // {{BCAVE_DS:id}} → 선택된 디자인 시스템 CSS(+안전 보정) 인라인 (토큰 0)
   content = content.replace(/\{\{BCAVE_DS:([\w-]+)\}\}/g, (_m, id) => {
     const s = DESIGN_SYSTEMS[id] ?? Object.values(DESIGN_SYSTEMS).find((x) => x.key === String(id).toLowerCase());

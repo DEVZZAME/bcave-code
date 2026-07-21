@@ -179,7 +179,9 @@ const BCAVE_GUIDE = `BCAVE — 자사 브랜드 · 모노톤 슬레이트 · PPT
 - 형태: 라운드 var(--radius-xs|md|lg|full), 그림자 var(--shadow-1|2), 흰 2px 헤어라인, 다크 슬레이트 블록. 절제된 3색 모노톤(강조는 어두운 슬레이트 하나로).
 - 차트 var(--chart-1..6). body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Pretendard <link> 필요.
 - 예) 카드: <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--card-padding);box-shadow:var(--shadow-1)">…</div>
-- 히어로(브랜드 표지형, 다크 슬레이트 박스+흰 헤어라인+우측정렬): <div class="hero"><div class="top"><h1><span class="cave">B.CAVE</span>핵심 제목</h1><div class="rule"></div><div class="dept">부서/팀명</div></div><div class="foot"><span>태그</span><span>태그</span><em>날짜/버전</em></div></div>  (cave=로고 자리, rule=흰 2px 선, foot span=모노 칩)
+- CI 로고(필수): 브랜드 로고는 자리표시자 {{BCAVE_LOGO}} 로 넣는다(실제 B.CAVE SVG 가 주입됨, fill:currentColor). GNB 로고에 반드시 포함: <div class="logo">{{BCAVE_LOGO}}</div> + CSS .logo .bcave-logo{height:20px;width:auto;color:var(--slate-800)}. 텍스트로 "B.CAVE" 를 직접 타이핑하지 말 것.
+- 히어로(브랜드 표지형 다크 슬레이트 박스+흰 헤어라인+우측정렬): <div class="hero"><div class="top"><h1>핵심 제목</h1><div class="rule"></div><div class="dept">부서/팀명</div></div><div class="foot"><span>태그</span><em>날짜/버전</em></div></div>. 히어로 상단에 로고를 두려면 {{BCAVE_LOGO}} 를 쓰고 .hero .bcave-logo{height:28px;color:#fff} 로 흰색 지정.
+- ★ 히어로는 다크 배경이다(background:var(--slate-800)). 그 안의 모든 글자(h1·p·태그·강조 em)는 반드시 밝은 색(#fff / var(--slate-200|300))으로. 어두운 텍스트 토큰(var(--color-text-primary/strong), var(--ink-*), var(--color-primary))을 히어로 안에 쓰면 다크-온-다크로 안 보인다. .rule 은 흰색(#fff).
 - 섹션 헤더(모든 섹션 필수): <div class="sec-head"><div class="kicker">English Kicker</div><h2>국문 제목</h2><p>한 줄 설명</p></div>  ← 왼쪽 다크 라운드 탭은 sec-head 가 자동으로 그림`;
 
 const AXIS_GUIDE = `AXIS — 밝은 코발트 · 웹 플랫폼/대시보드 (모던 프로페셔널). 컴포넌트 클래스가 없는 "토큰형" — 아래 CSS 변수로 컴포넌트를 직접 만든다.
