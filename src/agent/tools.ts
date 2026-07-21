@@ -7,6 +7,7 @@ import XLSX from "xlsx";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
 import { buildDashboard, readWorkbook, readRows, profileColumns, TABULAR_EXT } from "../dashboard/engine.js";
 import { TEMPLATE1_FULL_CSS, TEMPLATE2_FULL_CSS, DASH_TEMPLATES, normalizeTemplate } from "../dashboard/catalog.js";
+import { findDirection, rotateDirection, renderDirection, directionMenu } from "../design/directions.js";
 import type { PermissionCategory } from "./permissions.js";
 
 // Chart.js 로드 직후 적용할 전역 기본값: 항목이 적어도 막대가 카드 폭에 꽉 늘어나지 않게 두께 상한.
@@ -102,6 +103,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "frontend_design",
+      description:
+        "Get a concrete ART DIRECTION for building service/app UI (screens, landing pages, components) — fonts, palette, shape, motion, and a signature move. Call this FIRST before writing any UI so the result is distinctive, not the generic AI default look. Each call assigns a DIFFERENT direction (rotates) so repeated screens don't look the same; pass `style` (e.g. 'brutalist', '에디토리얼', 'luxe') to force a specific one. Commit fully to the returned direction. NOTE: this is for general product UI, NOT data dashboards (use dashboard_design_system for those).",
+      parameters: {
+        type: "object",
+        properties: {
+          style: { type: "string", description: "Optional direction name/alias (e.g. swiss, editorial, brutalist, luxe, terminal, soft, minimal, playful, glass, warm). Omit to get a rotated/assigned direction." },
+          brief: { type: "string", description: "Optional one-line description of the screen (to note fit)." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "dashboard_design_system",
       description:
         "Return the company dashboard design-system component catalog: ready-to-use HTML snippets for every component, the palette, layout rules, and the CSS/data/Chart.js placeholders. There are TWO templates — pick with the `template` arg: 'template1' (모던/modern — Toss-style, ds-* classes) or 'template2' (클래식/classic — document report, rp-* classes). If a data file path is given, also returns that file's columns and types. Call this FIRST whenever you build or edit a dashboard by hand, then compose the HTML yourself using ONLY that template's components — tailored to the request (e.g. charts only, table only) and varied each time.",
@@ -141,6 +158,7 @@ const CATEGORY_MAP: Record<string, PermissionCategory> = {
   write_file: "file_write",
   create_dashboard: "file_write",
   dashboard_design_system: "file_read",
+  frontend_design: "file_read",
   shell_exec: "shell_exec",
 };
 
@@ -436,6 +454,21 @@ export async function executeTool(
           );
         }
         return `File written: ${args.path} (검토 통과)`;
+      }
+      case "frontend_design": {
+        // 지정 스타일이 있으면 그걸로, 없으면 매 호출마다 다른 디렉션을 배정(획일화 방지).
+        const chosen = findDirection(args.style as string | undefined) ?? rotateDirection();
+        return (
+          `프론트엔드 아트 디렉션 (이 디렉션에 "완전히" 커밋하세요 — AI 기본 룩 금지):\n\n` +
+          renderDirection(chosen) +
+          `\n\n## 필수\n` +
+          `- 위 폰트·팔레트·모양·모션·시그니처를 실제로 적용. "가운데 카드 + 인디고 그라디언트 + Inter + rounded-2xl + 옅은 그림자" 같은 디폴트 룩 금지.\n` +
+          `- 폰트는 <head> 에 Google Fonts <link> 추가 후 CSS 에서 사용.\n` +
+          `- 반응형(모바일 우선): viewport meta, *{box-sizing:border-box}, flex/grid + minmax(0,1fr), max-width(고정 px 폭 금지), @media, img max-width:100%. 저장 시 자동 검토가 위반을 잡음.\n` +
+          `- 상태 처리: hover/focus/active/disabled + loading/empty/error.\n\n` +
+          `## 다른 디렉션이 필요하면 style 인자로 다시 호출\n${directionMenu()}\n` +
+          `(사용자가 특정 스타일을 말하면 그걸로. 여러 화면을 만들 땐 화면마다 다른 디렉션을 써서 획일화를 피하세요.)`
+        );
       }
       case "dashboard_design_system": {
         const tid = normalizeTemplate(args.template as string | undefined);
