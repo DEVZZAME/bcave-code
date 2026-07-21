@@ -383,6 +383,27 @@ function reviewHtml(content: string, filePath: string): string[] {
     }
   }
 
+  // 디자인시스템 시그니처(섹션 헤더/히어로/타이포 토큰) 준수 검사
+  const isTokenSystem = content.includes("--text-heading-1") || content.includes("--text-data");
+  if (isTokenSystem) {
+    // 시스템이 .sec-head 를 정의했는데 본문에서 안 씀 → 섹션 헤더 시그니처 누락
+    if (/\.sec-head\s*\{/.test(content) && !/class="[^"]*\bsec-head\b/.test(content)) {
+      issues.push('섹션 헤더 시그니처 누락: 시스템에 .sec-head(영문 오버라인+제목+구분선)가 있는데 본문에서 안 썼습니다. 각 섹션 제목을 밋밋한 <h2> 대신 <div class="sec-head">…</div> 헤더로 감싸세요(가이드 마크업 그대로).');
+    }
+    // 히어로를 쓰면서 h1 이 단색(강조 <em> 없음) → 2색 헤드라인 불일치
+    if (/class="[^"]*\bhero\b/.test(content)) {
+      const heroH1 = content.match(/class="[^"]*\bhero\b[\s\S]{0,400}?<h1[^>]*>([\s\S]*?)<\/h1>/i);
+      if (heroH1 && !/<em\b/i.test(heroH1[1])) {
+        issues.push("히어로 h1 2색 누락: 강조 단어/줄을 <em>…</em>로 감싸 강조색이 되게 하세요(디자인시스템의 2색 헤드라인과 맞춤).");
+      }
+    }
+    // 타입 토큰 대신 임의 px 폰트를 인라인으로 남발 → 폰트 크기 불일치
+    const inlinePx = content.match(/style="[^"]*font-size:\s*\d+(?:\.\d+)?px/gi);
+    if (inlinePx && inlinePx.length > 5) {
+      issues.push(`타이포 토큰 미사용: 인라인 임의 px 폰트가 ${inlinePx.length}곳입니다. 글자 크기는 font:var(--text-display-1|heading-1|body-1|…), 숫자는 var(--text-data-*) 토큰만 쓰세요(임의 px 는 다른 시스템처럼 보입니다).`);
+    }
+  }
+
   return issues;
 }
 

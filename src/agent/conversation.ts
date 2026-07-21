@@ -51,7 +51,13 @@ FILE RULES (mandatory): (1) SINGLE self-contained .html file — ALL CSS inside 
 DELIVERABLE CONTENT: the file contains ONLY the real product content — title, data, KPIs, charts, insights. NEVER embed meta/process narration: no "…를 바탕으로 다시 구성했습니다", no design-system/mood description, no data-source file path, no "단일 HTML 파일…" notes, no "원하시면 다음 단계로 …". Put ALL of that in your CHAT reply only.
 TITLE & HEADER: h1 is a concise, factual report title — a short noun phrase (e.g. "브랜드 매출·고객 성과 리포트"), NO trailing sentence/period, NO marketing phrasing. Keep the header compact (optional short eyebrow + short h1 + at most one brief subtitle). Follow the chosen system's heading typography tokens; do not blanket-bold every heading.
 RESPONSIVE & LAYOUT (mandatory, mobile-first): always add <meta name="viewport" content="width=device-width,initial-scale=1"> and \`*{box-sizing:border-box}\`. Use fluid layouts (flex/grid with min-width:0 on children, grid tracks as minmax(0,1fr), %/rem/clamp() sizing) — never fixed px widths on containers (use max-width + width:100%). Add @media breakpoints (e.g. 640/768/1024px) so nothing overflows or breaks on mobile; media/img get max-width:100%. Long text wraps; avoid horizontal scroll. Cover UI states: hover/focus/active/disabled + loading/empty/error. After writing an HTML page, honor the export review — fix any 반응형/레이아웃 warnings before claiming done.
-CHARTS: to use Chart.js, inline it as <script>{{BCAVE_CHARTJS}}</script> — NOT <script src="{{BCAVE_CHARTJS}}"> (putting the library in src breaks loading → chart won't render). Put EVERY <canvas> in a fixed-height container (position:relative;height:280px) and set the chart option maintainAspectRatio:false. For spreadsheet data token-free use the {{BCAVE_DATA:/abs/path#sheet}} placeholder. These are generic utilities, not the design system.`,
+CHARTS: to use Chart.js, inline it as <script>{{BCAVE_CHARTJS}}</script> — NOT <script src="{{BCAVE_CHARTJS}}"> (putting the library in src breaks loading → chart won't render). Put EVERY <canvas> in a fixed-height container (position:relative;height:280px) and set the chart option maintainAspectRatio:false. For spreadsheet data token-free use the {{BCAVE_DATA:/abs/path#sheet}} placeholder. These are generic utilities, not the design system.
+COMPOSITION DISCIPLINE (match the design system exactly — these are the most common failures):
+- TYPOGRAPHY comes ONLY from the system's type tokens. Every text size/weight uses font:var(--text-display-1|heading-1|body-1|…) and numbers use var(--text-data-*). NEVER hand-pick px font-sizes/weights — arbitrary sizes make it look like a different system. If a size feels missing, choose the closest token, don't invent one.
+- CARDS are NOT the default container. Use a card ONLY for a genuinely discrete widget (a KPI tile, one chart, one callout). Do NOT wrap whole sections, tables, or the whole page in cards — a page that is just a stack of boxes is wrong. Most content (section headers, tables, charts, prose) sits directly on the page inside the section, no card.
+- CHARTS use ONLY Chart.js with the system palette (var(--chart-1..8), grid var(--chart-grid), axis var(--chart-axis)). Do NOT hand-build bars/donuts/gauges/sparklines out of divs or SVG unless the design system explicitly ships that component — a chart that isn't in the system is a BUG.
+- SECTION HEADER is mandatory on every section: English overline + Korean h2 + divider (AXIS .sec-head>.kicker; ATELIER .sec-head>.overline + trailing <div class="hairline">). A bare <h2> without the overline/divider is wrong.
+- HERO headline is two-tone: wrap the accent word/line in <em> so it takes the primary color (like the system's "하나의 토큰, 두 가지 밀도." where the second line is colored). A single-color hero h1 does not match.`,
     });
   }
 
@@ -165,6 +171,10 @@ CHARTS: to use Chart.js, inline it as <script>{{BCAVE_CHARTJS}}</script> — NOT
           `- 가변은 오직 "콘텐츠 배치": 어떤 섹션/카드를 어떤 순서·강조·그리드로 둘지만 요청/데이터에 맞게 다르게. 정체성·표준 크롬은 고정, 콘텐츠 배열만 매번 다르게.\n` +
           `- 필수 요소를 빼지 말 것: 시스템의 표준 크롬(GNB/topbar·페이지 헤더·컨테이너)과 화면에 당연히 있어야 할 요소를 항상 포함.\n` +
           `- 섹션 헤더 패턴(정체성의 일부, 필수): 각 주요 섹션은 "영문 오버라인(대문자 짧은 영단어) + 국문 제목 + 하단 구분선" 헤더로 시작한다. 최상단엔 히어로(오버라인/뱃지 + 큰 제목 + 설명). 정확한 클래스·마크업은 아래 가이드를 그대로 따를 것 — 이 헤더 형식은 모든 섹션에서 동일하게 유지(콘텐츠만 가변).\n` +
+          `- 폰트는 반드시 타입 토큰만: 모든 글자 크기/굵기는 font:var(--text-display-1|heading-1|body-1|…), 숫자는 var(--text-data-*). 임의 px 폰트크기 금지(사이즈가 다르면 다른 시스템처럼 보인다).\n` +
+          `- 카드는 기본 컨테이너가 아님: 카드는 KPI 타일·단일 차트·콜아웃 같은 "독립 위젯"에만. 섹션 전체/표/페이지를 카드로 감싸지 말 것(상자 나열 금지). 대부분의 내용(섹션 헤더·표·차트·본문)은 카드 없이 섹션 안에 바로 둔다.\n` +
+          `- 차트는 Chart.js + 시스템 팔레트(var(--chart-1..8)/grid/axis)만. div·SVG로 직접 만든 바/도넛/게이지 등 시스템에 없는 그래프 금지.\n` +
+          `- 히어로 h1은 2색: 강조 단어/줄을 <em>로 감싸 강조색(primary)이 되게(디자인시스템 "하나의 토큰, 두 가지 밀도."처럼). 단색 h1은 시스템과 불일치.\n` +
           s.guide +
           `]`,
       });
