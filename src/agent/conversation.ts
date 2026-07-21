@@ -45,7 +45,7 @@ export class ConversationManager {
 
 UI / SCREENS (service & app development): When building product UI — screens, pages, components, forms, flows, features — build real, modern, production-quality web UI exactly like a general coding agent (Claude Code / Codex) would.
 DESIGN SYSTEM CHOICE (mandatory): the company has 4 design systems (1 AXIS, 2 TOSS, 3 CLASSIC, 4 ATELIER). Whenever the user asks to build a screen / dashboard / any HTML page and has NOT picked one, do NOT build yet — ASK which of the 4 to use (they answer by number or name). A system note lists them. Once chosen (or if the user names it, or says "알아서" → you pick), you get a system note "[이번 화면/대시보드/HTML 은 "…" 디자인 시스템으로 …]" with that system's rules/tokens/components — build with ONLY those (no arbitrary colors/fonts/values). Inline its CSS via <style>{{BCAVE_DS:<id>}}</style> (token-free). Keep the chosen system across follow-up edits; only re-ask for a brand-new page.
-VARY THE LAYOUT: never emit the same fixed template every time. Following the system's rules (spacing/typography/color/components), arrange each build DIFFERENTLY — different grid, order, emphasis, section composition to fit the request and data. Rules are fixed; layout is fresh each time.
+CONSISTENT IDENTITY, VARIED CONTENT: the same design system must ALWAYS look like the same product — identity (color, typography, spacing, components, and the standard shell/GNB) is FIXED and consistent across every output. Completely different-feeling results from the same system are a BUG. What varies each time is only the CONTENT arrangement (which sections/cards, their order, emphasis, grid) to fit the request and data — never the identity or the standard chrome. INCLUDE the essential elements the system defines (GNB/topbar, page header, container) and whatever a real screen must have; do not drop them.
 Then inspect the repo and FOLLOW its existing stack and conventions: framework (React / Vue / Next / Svelte / plain HTML), styling (Tailwind / CSS Modules / styled-components / plain CSS), component library, routing, and file layout. Wire it into the codebase. If no stack exists yet, pick sensible modern defaults and say so.
 FILE RULES (mandatory): (1) SINGLE self-contained .html file — ALL CSS inside inline <style> (via {{BCAVE_DS}} + your layout styles), JS inline too; no separate .css/.js files, no external stylesheet links (a web-font <link> and an inlined chart lib are the only allowed externals). (2) ALWAYS write to a NEW file that does not already exist (e.g. <name>.html → <name>-2.html …); NEVER overwrite a previous page/dashboard, even for a "다르게/더 심플하게" iteration — so the user can keep and compare versions.
 DELIVERABLE CONTENT: the file contains ONLY the real product content — title, data, KPIs, charts, insights. NEVER embed meta/process narration: no "…를 바탕으로 다시 구성했습니다", no design-system/mood description, no data-source file path, no "단일 HTML 파일…" notes, no "원하시면 다음 단계로 …". Put ALL of that in your CHAT reply only.
@@ -161,7 +161,9 @@ For embedding spreadsheet data token-free you may still use the {{BCAVE_DATA:/ab
           `[이번 화면/대시보드/HTML 은 "${s.label}" 디자인 시스템으로 만들 것.\n` +
           `- CSS 는 <style>{{BCAVE_DS:${s.id}}}</style> 로 인라인(토큰 0). 이 시스템의 토큰/컴포넌트 규칙만 사용(임의 색·폰트·값 금지).\n` +
           `- 단일 HTML 파일(모든 CSS 인라인), 항상 새 파일명으로 저장.\n` +
-          `- 배치는 매번 다르게: 고정된 틀을 반복하지 말고 그리드·순서·강조·섹션 구성을 요청/데이터에 맞게 새로 짜라. 단 시스템 규칙(간격·타이포·색·컴포넌트)은 지킬 것.\n` +
+          `- 일관성: 같은 시스템은 항상 같은 정체성(색·타이포·간격·컴포넌트·표준 셸/GNB)을 유지해 "같은 제품"처럼 보여야 한다. 느낌이 매번 완전히 달라지면 오류다.\n` +
+          `- 가변은 오직 "콘텐츠 배치": 어떤 섹션/카드를 어떤 순서·강조·그리드로 둘지만 요청/데이터에 맞게 다르게. 정체성·표준 크롬은 고정, 콘텐츠 배열만 매번 다르게.\n` +
+          `- 필수 요소를 빼지 말 것: 시스템의 표준 크롬(GNB/topbar·페이지 헤더·컨테이너)과 화면에 당연히 있어야 할 요소를 항상 포함.\n` +
           s.guide +
           `]`,
       });

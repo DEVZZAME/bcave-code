@@ -326,17 +326,32 @@ function reviewHtml(content: string, filePath: string): string[] {
     if (nonFontCss.length) {
       issues.push("단일 파일 규칙: 외부 CSS(<link rel=\"stylesheet\">)를 쓰지 말고 CSS 를 전부 같은 파일의 인라인 <style> 안에 넣으세요(웹폰트 링크만 예외).");
     }
-    // 차트(canvas) 세로 무한 확장 방지
+    // 차트(canvas) 세로 과확장 방지 — 각 canvas 를 감싼 요소에 고정 높이가 있어야 한다.
     if (/<canvas/i.test(content)) {
-      // (a) canvas 에 height:auto → Chart.js 가 매 리사이즈마다 세로로 무한히 커진다(가장 흔한 원인)
+      // (a) canvas 에 height:auto → Chart.js 세로 무한 확장
       if (/canvas[^{}]*\{[^}]*height\s*:\s*auto/i.test(styleCss)) {
-        issues.push("차트 오류: canvas 에 height:auto 를 주면 Chart.js 가 세로로 무한 확장됩니다. canvas 에는 height 를 지정하지 말고, 'position:relative; height:280px' 처럼 높이가 고정된 컨테이너 <div> 안에 넣은 뒤 차트 옵션에 maintainAspectRatio:false 를 쓰세요.");
+        issues.push("차트 오류: canvas 에 height:auto 를 주면 Chart.js 가 세로로 무한 확장됩니다. canvas 에는 height 를 지정하지 말고 높이가 고정된 컨테이너 <div>(position:relative;height:280px) 안에 넣고 maintainAspectRatio:false 를 쓰세요.");
       }
-      // (b) Chart.js 를 쓰는데 고정 높이 컨테이너가 전혀 없음 → 높이가 불안정/무한 확장 위험
-      const usesChart = /new Chart|\{\{BCAVE_CHARTJS\}\}|chart\.umd|chart\.js/i.test(content);
-      const hasBoundedHeight = /height\s*:\s*\d+(?:px|vh|rem|em)/i.test(styleCss) || /aspect-ratio\s*:/i.test(styleCss) || /style=["'][^"']*height\s*:\s*\d+/i.test(content);
-      if (usesChart && !hasBoundedHeight) {
-        issues.push("차트 오류: 차트 컨테이너에 고정 높이가 없습니다. canvas 를 'position:relative; height:280px' 같은 고정 높이 <div> 에 넣고 maintainAspectRatio:false 로 하세요(안 그러면 그래프가 세로로 계속 길어집니다).");
+      // (b) 각 canvas 의 "직전 감싸는 요소"에 고정 높이가 있는지 개별 확인
+      //     (한 차트만 높이를 주고 다른 차트는 빠뜨리는 실수 방지)
+      const esc = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let unbounded = 0;
+      for (const m of content.matchAll(/<(\w+)([^>]*)>\s*<canvas\b/gi)) {
+        const attrs = m[2] || "";
+        const inlineH = /style=["'][^"']*(?:height|aspect-ratio)\s*:\s*[^;"']*\d/i.test(attrs);
+        const cls = (attrs.match(/class=["']([^"']+)["']/) || [])[1] || "";
+        const classH = cls
+          .split(/\s+/)
+          .filter(Boolean)
+          .some((c) => new RegExp(`\\.${esc(c)}\\b[^{}]*\\{[^}]*(?:height\\s*:\\s*\\d|aspect-ratio\\s*:)`, "i").test(styleCss));
+        if (!inlineH && !classH) unbounded++;
+      }
+      if (unbounded > 0) {
+        issues.push(`차트 오류: canvas ${unbounded}개의 감싸는 요소에 고정 높이가 없습니다 → 차트가 컨테이너 폭에 맞춰 과도하게 커집니다(maintainAspectRatio 기본값 문제). 모든 canvas 를 'position:relative; height:280px' 처럼 높이 고정된 <div> 에 넣고, Chart 옵션에 maintainAspectRatio:false 를 쓰세요.`);
+      }
+      // (c) Chart.js 쓰는데 maintainAspectRatio:false 가 한 번도 없음 → 폭 기준 2:1 로 과대해짐
+      if (/new Chart|\{\{BCAVE_CHARTJS\}\}|chart\.umd/i.test(content) && !/maintainAspectRatio\s*:\s*false/i.test(content)) {
+        issues.push("차트 권장: Chart 옵션에 maintainAspectRatio:false 가 없습니다. 없으면 차트가 컨테이너 폭의 2:1 비율로 커집니다. 고정 높이 컨테이너 + maintainAspectRatio:false 조합을 쓰세요.");
       }
     }
 
