@@ -76,6 +76,14 @@ describe("Tools", () => {
   });
 
   describe("write_file", () => {
+    it("advertises structured dashboard fields instead of requiring fragile code fences", () => {
+      const write = TOOL_DEFINITIONS.find((t) => t.function.name === "write_file")!;
+      const props = write.function.parameters.properties as Record<string, unknown>;
+      expect(props).toHaveProperty("body");
+      expect(props).toHaveProperty("app_script");
+      expect(write.function.parameters.required).toEqual(["path"]);
+    });
+
     it("creates a new file", async () => {
       await executeTool("write_file", { path: "new.txt", content: "new content" }, testDir);
       const content = fs.readFileSync(path.join(testDir, "new.txt"), "utf-8");

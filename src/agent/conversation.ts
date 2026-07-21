@@ -187,8 +187,8 @@ COMPOSITION DISCIPLINE:
         role: "system",
         content:
           `[활성 디자인 시스템: ${config.designSystem}]\n` + designRules(config.designSystem) +
-          `\n\n대시보드/UI/화면 HTML을 만들 때 출력 계약: write_file의 content에는 ` +
-          "한 번의 호출로 ```html:body```와 ```js:app``` 코드펜스 두 개를 함께 넣는다. 두 블록을 따로 저장하거나 완성 HTML, <style>, 별도 설명을 넣지 않는다. " +
+          `\n\n대시보드/UI/화면 HTML을 만들 때 출력 계약: write_file을 정확히 한 번 호출하고 path, body, app_script 필드를 사용한다. ` +
+          "body에는 <body> 내부 마크업만, app_script에는 데이터 자리표시자 할당과 JS만 원문 문자열로 넣는다. content 필드와 코드펜스는 사용하지 않는다. 두 블록을 따로 저장하거나 완성 HTML, <style>, <script>, 별도 설명을 넣지 않는다. template.html을 직접 읽거나 조립하지 않는다. " +
           "CLI가 템플릿·토큰·UI CSS·Chart.js·차트 어댑터·데이터를 조립하고 린트한다. " +
           "차트는 동일 축에 동일 단위만 사용하고, 도넛은 상위 5개+기타(최대 6조각), 고객 수 단위는 '명'으로 쓴다. " +
           "히어로를 쓰면 반드시 <section class=\"hero\"><div class=\"top\"><h1>제목</h1><div class=\"rule\"></div><div class=\"dept\">부서 · 기간</div></div></section> 구조만 사용한다. hero-copy/hero-grid 같은 클래스를 발명하거나 히어로 안에 KPI를 넣지 않는다. " +

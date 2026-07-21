@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { assembleDesignArtifact, lintDesignArtifact } from "../runtime.js";
+import { assembleDesignArtifact, assembleDesignArtifactParts, lintDesignArtifact } from "../runtime.js";
 
 function writeArtifact(source: string): { dir: string; file: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-design-"));
@@ -12,6 +12,20 @@ function writeArtifact(source: string): { dir: string; file: string } {
 }
 
 describe("BCAVE design pipeline", () => {
+  it("assembles structured body/app fields without code fences", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-design-parts-"));
+    const file = path.join(dir, "dashboard.html");
+    const html = assembleDesignArtifactParts(
+      "bcave",
+      '<div class="page"><div class="kpi dark"><div class="val num" id="sales"></div></div></div>',
+      "document.getElementById('sales').textContent = BCAVE.fmt.krw(100);",
+      file,
+    );
+    expect(html).toContain("BCAVE:ASSET tokens");
+    expect(html).not.toContain("```html:body");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it("assembles the two-block contract with marked assets and passes lint", () => {
     const { dir, file } = writeArtifact([
       "```html:body",

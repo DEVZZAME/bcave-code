@@ -40,12 +40,16 @@ function titleFromBody(body: string, fallback: string): string {
   return raw || fallback.replace(/[-_]+/g, " ");
 }
 
-export function assembleDesignArtifact(name: string, source: string, outputPath: string): string {
+export function assembleDesignArtifactParts(name: string, body: string, app: string, outputPath: string): string {
   const dir = designSystemDir(name);
-  const body = extractBlock(source, "html:body");
-  const app = extractBlock(source, "js:app");
-  if (body == null || app == null) {
-    throw new Error("디자인 시스템 출력 계약 위반: ```html:body```와 ```js:app``` 코드펜스 두 개만 write_file content로 전달하세요. 완성 HTML은 전달하지 마세요.");
+  if (!body.trim() || !app.trim()) {
+    throw new Error("디자인 시스템 출력 계약 위반: write_file의 body와 app_script를 모두 전달하세요.");
+  }
+
+  body = body.trim();
+  app = app.trim();
+  if (/<(?:!doctype|html|head|body)\b/i.test(body) || /<style\b/i.test(body)) {
+    throw new Error("body에는 <body> 내부 마크업만 전달하세요. 완성 HTML, <head>, <style>은 CLI가 조립합니다.");
   }
 
   const dataLines: string[] = [];
@@ -68,6 +72,16 @@ export function assembleDesignArtifact(name: string, source: string, outputPath:
   let html = fs.readFileSync(path.join(dir, "template.html"), "utf8");
   for (const [key, value] of Object.entries(replacements)) html = html.split(`{{${key}}}`).join(value);
   return html;
+}
+
+/** 이전 코드펜스 계약과의 하위 호환용. 신규 호출은 구조화된 body/app_script 필드를 사용한다. */
+export function assembleDesignArtifact(name: string, source: string, outputPath: string): string {
+  const body = extractBlock(source, "html:body");
+  const app = extractBlock(source, "js:app");
+  if (body == null || app == null) {
+    throw new Error("디자인 시스템 출력 계약 위반: write_file의 body와 app_script 필드를 사용하세요. 코드펜스나 완성 HTML은 전달하지 마세요.");
+  }
+  return assembleDesignArtifactParts(name, body, app, outputPath);
 }
 
 export function lintDesignArtifact(name: string, filePath: string): DesignLintResult {
