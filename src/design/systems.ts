@@ -268,7 +268,12 @@ const ALIAS: Record<string, string> = {
 /** 메시지에서 디자인 시스템 선택(1~7 / 이름)을 찾는다. 없으면 null. */
 export function findSystem(message?: string): DesignSystem | null {
   if (!message) return null;
-  const m = message.toLowerCase();
+  // 파일 경로·URL·파일명은 선택 신호가 아니다 — 예: /Users/bcave/… 의 'bcave', test1.xlsx 의 '1'
+  // 이 오탐(경로 속 사용자명이 시스템으로 매칭)이 "안 물어봄" 버그의 원인이었다.
+  const m = message
+    .replace(/\S*[\/\\]\S*/g, " ") // 슬래시 포함 토큰(경로·URL) 통째 제거
+    .replace(/\S+\.[a-z0-9]{1,6}\b/gi, " ") // 파일명(확장자 포함) 제거
+    .toLowerCase();
   // 정확한 번호/이름 우선
   for (const [k, id] of Object.entries(ALIAS)) {
     const re = /^[a-z]/.test(k) ? new RegExp(`\\b${k}\\b`) : new RegExp(`(^|[^0-9])${k}([^0-9]|$)`);
