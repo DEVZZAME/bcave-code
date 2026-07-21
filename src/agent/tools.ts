@@ -104,7 +104,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "frontend_design",
       description:
-        "Get a concrete ART DIRECTION for building service/app UI (screens, landing pages, components) — fonts, palette, shape, motion, and a signature move. Call this FIRST before writing any UI so the result is distinctive, not the generic AI default look. Each call assigns a DIFFERENT direction (rotates) so repeated screens don't look the same; pass `style` (e.g. 'brutalist', '에디토리얼', 'luxe') to force a specific one. Commit fully to the returned direction. NOTE: this is for general product UI, NOT data dashboards (use dashboard_design_system for those).",
+        "Get a concrete ART DIRECTION for building ANY web UI in chat — screens, landing pages, components, AND dashboards/data views requested in natural language — fonts, palette, shape, motion, and a signature move. Call this FIRST before writing any UI so the result is distinctive, not the generic AI default look. Each call assigns a DIFFERENT direction (rotates) so repeated screens don't look the same; pass style (e.g. 'brutalist', '에디토리얼', 'luxe') to force a specific one. Commit fully to the returned direction. (The built-in company design system is NOT used in chat — it is only available via the separate /dashboard command the user runs.)",
       parameters: {
         type: "object",
         properties: {
@@ -367,7 +367,7 @@ export async function executeTool(
           return readSpreadsheet(filePath, args.path as string);
         }
         // PDF 는 텍스트를 추출해 읽는다 (의존성 없이). 데이터가 표 형태면 CSV 로 정리해
-        // create_dashboard 로 대시보드를 만들 수 있다.
+        // 활용할 수 있다.
         if (ext === ".pdf") {
           const text = extractPdfText(fs.readFileSync(filePath));
           if (!text || text.length < 20) {
