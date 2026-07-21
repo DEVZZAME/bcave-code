@@ -1,12 +1,12 @@
-// 7개 디자인 시스템 — 사용자가 화면/대시보드/HTML 을 만들 때마다 이 중 하나를 고른다.
+// 6개 디자인 시스템 — 사용자가 화면/대시보드/HTML 을 만들 때마다 이 중 하나를 고른다.
 // 규칙(토큰·컴포넌트)은 지키되, LLM 이 매번 레이아웃을 다르게 조립한다(고정 틀 금지).
 // CSS 는 {{BCAVE_DS:<id>}} 자리표시자로 인라인(토큰 0).
 
-import { AXIS_CSS, TOSS_CSS, ATELIER_CSS, PRISM_CSS, PUNCH_CSS, MOCHI_CSS, MEOK_CSS } from "./tokens-css.js";
+import { AXIS_CSS, ATELIER_CSS, PRISM_CSS, PUNCH_CSS, MOCHI_CSS, MEOK_CSS } from "./tokens-css.js";
 
 export interface DesignSystem {
-  id: string; // "1".."7"
-  key: string; // axis | toss | atelier | prism | punch | mochi | meok
+  id: string; // "1".."6"
+  key: string; // axis | atelier | prism | punch | mochi | meok
   label: string; // 선택지 표시
   css: string; // 토큰/컴포넌트 CSS
   guide: string; // 사용법(토큰형/컴포넌트형) + 배치 규칙
@@ -171,14 +171,6 @@ const ATELIER_GUIDE = `ATELIER — 다크 에디토리얼 · 에스프레소+골
 - 히어로(최상단): <div class="hero"><span class="overline">짧은 라벨</span><h1>핵심 메시지<br><em>강조 줄</em></h1><p>한 줄 설명</p></div>  (overline=골드 대문자, em=골드 강조)
 - 섹션 헤더(모든 섹션 필수): <div class="sec-head"><span class="overline">PRINCIPLES</span><h2>국문 제목</h2><div class="hairline"></div></div> …내용…  ← overline=영문 대문자 골드, 마지막 <div class="hairline"></div> 가 시그니처 골드 이중 구분선을 그림(반드시 넣을 것)`;
 
-const TOSS_GUIDE = `TOSS — 밝은 배경·둥근 카드·파란 강조 (토스풍 모던). "컴포넌트형" — .ds-* 클래스를 조립. body 에 class="ds-body". 컨테이너 .ds-wrap(max 1080), 2열 .ds-two-col.
-- 섹션 제목 .ds-section-title · 카드 .ds-card(+.ds-card-head/.ds-card-title/.ds-card-desc)
-- KPI .ds-kpi-label/.ds-kpi-value/.ds-kpi-sub · 델타 .ds-delta.ds-delta--up|--down · 배지 .ds-badge(--primary|--neutral) · 칩 .ds-chip(.ds-chip--on) · 세그 .ds-seg
-- 표 .ds-tbl · 순위행 .ds-row(.ds-row-rank/.ds-row-avatar/.ds-row-thumb/.ds-row-main/.ds-row-title/.ds-row-sub/.ds-row-val)
-- 스택바 .ds-stackbar + 범례 .ds-legend/.ds-legend-item/.ds-legend-dot/.ds-legend-pct · 게이지 .ds-gauge/.ds-gauge-bar/.ds-gauge-fill
-- 팁 .ds-tip · 알림 .ds-noti(.ds-noti-icon/.ds-noti-title/.ds-noti-body) · 피드 .ds-feed/.ds-feed-item · 상품 .ds-prod(.ds-prod-img/.ds-prod-body/.ds-prod-cat/.ds-prod-name/.ds-prod-price) · 리포트 .ds-report/.ds-quote/.ds-tag
-- 차트는 높이 고정 컨테이너(position:relative;height:280px)+ maintainAspectRatio:false. 팔레트 파랑 계열(#3182F6…). Pretendard <link> 필요.`;
-
 // 토큰형(prism/punch/mochi/meok) 공통 셸 노트 — 히어로/섹션 헤더 마크업은 각 가이드 예시를 따른다.
 const SHELL_NOTE_TOKEN =
   "\n표준 셸(모든 페이지 공통 — 빼지 말 것): <body> 안에 GNB <div class=\"topbar\"><div class=\"topbar-inner\"><div class=\"logo\">제품/서비스명</div><nav><a href=\"#\">메뉴1</a><a href=\"#\">메뉴2</a>…</nav></div></div> 이어서 <main class=\"wrap\"> …내용… </main>. 페이지 최상단엔 히어로 <div class=\"hero\">…</div>, 각 주요 섹션은 <div class=\"sec-head\">…</div> 헤더로 시작한다. topbar·wrap·hero·sec-head 는 이 시스템의 고정 크롬이다 — hero/sec-head 안의 정확한 마크업(뱃지·라벨 클래스 등)은 위 가이드의 '히어로/섹션 헤더' 예시를 그대로 쓴다. 콘텐츠 배치만 매번 다르게, 셸·헤더 패턴은 모든 화면에서 동일하게 유지한다.";
@@ -222,25 +214,23 @@ const MEOK_GUIDE = `MEOK — 한국 전통 지물 · 먹 농담 · 한지+인주
 
 export const DESIGN_SYSTEMS: Record<string, DesignSystem> = {
   "1": { id: "1", key: "axis", label: "1. AXIS — 밝은 코발트 · 모던 프로페셔널 (웹/대시보드, 토큰형)", css: AXIS_CSS + "\n" + AXIS_SHELL, guide: AXIS_GUIDE + SHELL_NOTE },
-  "2": { id: "2", key: "toss", label: "2. TOSS — 밝은 배경 · 둥근 카드 · 파란 강조 (토스풍)", css: TOSS_CSS, guide: TOSS_GUIDE },
-  "3": { id: "3", key: "atelier", label: "3. ATELIER — 다크 에디토리얼 · 골드+세리프 (고급/차분)", css: ATELIER_CSS + "\n" + ATELIER_SHELL, guide: ATELIER_GUIDE + SHELL_NOTE },
-  "4": { id: "4", key: "prism", label: "4. PRISM — 글래스모피즘 · 바이올렛 그라디언트 · 유리 (트렌디/화려)", css: PRISM_CSS + "\n" + PRISM_SHELL, guide: PRISM_GUIDE + SHELL_NOTE_TOKEN },
-  "5": { id: "5", key: "punch", label: "5. PUNCH — 네오 브루탈리즘 · 잉크 보더 · 옐로/핑크 (에너지/젊음)", css: PUNCH_CSS + "\n" + PUNCH_SHELL, guide: PUNCH_GUIDE + SHELL_NOTE_TOKEN },
-  "6": { id: "6", key: "mochi", label: "6. MOCHI — 파스텔 · 풀 라운드 · 통통 튀는 (귀여움/캐주얼)", css: MOCHI_CSS + "\n" + MOCHI_SHELL, guide: MOCHI_GUIDE + SHELL_NOTE_TOKEN },
-  "7": { id: "7", key: "meok", label: "7. MEOK — 한국 전통 · 먹 농담 · 한지+인주 · 세로 레이블 (헤리티지/차분)", css: MEOK_CSS + "\n" + MEOK_SHELL, guide: MEOK_GUIDE + SHELL_NOTE_TOKEN },
+  "2": { id: "2", key: "atelier", label: "2. ATELIER — 다크 에디토리얼 · 골드+세리프 (고급/차분)", css: ATELIER_CSS + "\n" + ATELIER_SHELL, guide: ATELIER_GUIDE + SHELL_NOTE },
+  "3": { id: "3", key: "prism", label: "3. PRISM — 글래스모피즘 · 바이올렛 그라디언트 · 유리 (트렌디/화려)", css: PRISM_CSS + "\n" + PRISM_SHELL, guide: PRISM_GUIDE + SHELL_NOTE_TOKEN },
+  "4": { id: "4", key: "punch", label: "4. PUNCH — 네오 브루탈리즘 · 잉크 보더 · 옐로/핑크 (에너지/젊음)", css: PUNCH_CSS + "\n" + PUNCH_SHELL, guide: PUNCH_GUIDE + SHELL_NOTE_TOKEN },
+  "5": { id: "5", key: "mochi", label: "5. MOCHI — 파스텔 · 풀 라운드 · 통통 튀는 (귀여움/캐주얼)", css: MOCHI_CSS + "\n" + MOCHI_SHELL, guide: MOCHI_GUIDE + SHELL_NOTE_TOKEN },
+  "6": { id: "6", key: "meok", label: "6. MEOK — 한국 전통 · 먹 농담 · 한지+인주 · 세로 레이블 (헤리티지/차분)", css: MEOK_CSS + "\n" + MEOK_SHELL, guide: MEOK_GUIDE + SHELL_NOTE_TOKEN },
 };
 
 const ALIAS: Record<string, string> = {
   "1": "1", "1번": "1", axis: "1", 액시스: "1",
-  "2": "2", "2번": "2", toss: "2", 토스: "2",
-  "3": "3", "3번": "3", atelier: "3", 아틀리에: "3", 다크: "3",
-  "4": "4", "4번": "4", prism: "4", 프리즘: "4", 글래스: "4", 유리: "4",
-  "5": "5", "5번": "5", punch: "5", 펀치: "5", 브루탈: "5",
-  "6": "6", "6번": "6", mochi: "6", 모찌: "6", 파스텔: "6",
-  "7": "7", "7번": "7", meok: "7", 먹: "7", 한지: "7", 전통: "7",
+  "2": "2", "2번": "2", atelier: "2", 아틀리에: "2", 다크: "2",
+  "3": "3", "3번": "3", prism: "3", 프리즘: "3", 글래스: "3", 유리: "3",
+  "4": "4", "4번": "4", punch: "4", 펀치: "4", 브루탈: "4",
+  "5": "5", "5번": "5", mochi: "5", 모찌: "5", 파스텔: "5",
+  "6": "6", "6번": "6", meok: "6", 먹: "6", 한지: "6", 전통: "6",
 };
 
-/** 메시지에서 디자인 시스템 선택(1~7 / 이름)을 찾는다. 없으면 null. */
+/** 메시지에서 디자인 시스템 선택(1~6 / 이름)을 찾는다. 없으면 null. */
 export function findSystem(message?: string): DesignSystem | null {
   if (!message) return null;
   const m = message.toLowerCase();
@@ -252,12 +242,12 @@ export function findSystem(message?: string): DesignSystem | null {
   return null;
 }
 
-/** 7개 선택지 목록(되묻기용). */
+/** 6개 선택지 목록(되묻기용). */
 export function systemsMenu(): string {
   return Object.values(DESIGN_SYSTEMS).map((s) => "  " + s.label).join("\n");
 }
 
-// "알아서"일 때 7개를 순환 배정(매번 다른 시스템).
+// "알아서"일 때 6개를 순환 배정(매번 다른 시스템).
 let _lastAuto = "";
 export function rotateSystem(): DesignSystem {
   const ids = Object.keys(DESIGN_SYSTEMS).filter((i) => i !== _lastAuto);
