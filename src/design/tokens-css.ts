@@ -1,4 +1,200 @@
 // 자동 생성물: 디자인시스템 tokens.css 임베드. 직접 수정하지 말 것.
+export const BCAVE_CSS = `/* ============================================================
+   BCAVE Design System — Tokens v0.2
+   비케이브 PPT 템플릿 기반 · 웹 플랫폼 & 보고용 대시보드 공용
+
+   PPT 4p 가이드에 명시된 공식 팔레트를 그대로 따릅니다:
+     #264148 (슬레이트 다크) · #718790 (슬레이트 미드) · #DEE2E3 (라이트)
+     텍스트: #000000 / #3B3B3B / #7F7F7F · 폰트: Pretendard
+   중간 단계는 세 원본 색을 보간해 파생했으며 [파생]으로 표기합니다.
+   상태색(성공/위험)은 PPT에 없어 웹 전용 확장색으로 추가했습니다.
+
+   구조: Primitive(원시값) → Semantic(의미) → Component(컴포넌트)
+   ============================================================ */
+
+:root {
+  /* ---------- 1. Primitive · Color ---------- */
+  /* Slate — 브랜드 단일 축. ★ = PPT 원본 */
+  --slate-900: #1A2E33;      /* [파생] 264148보다 한 단계 깊게 */
+  --slate-800: #264148;      /* ★ 공식 — 다크 패널 · 주요 행동 */
+  --slate-700: #3D555E;      /* [파생] */
+  --slate-600: #566C75;      /* [파생] */
+  --slate-500: #718790;      /* ★ 공식 — 보조 · 테이블 헤더 */
+  --slate-400: #8FA0A7;      /* [파생] */
+  --slate-300: #A8B6BB;      /* [파생] */
+  --slate-200: #C6CFD2;      /* [파생] */
+  --slate-100: #DEE2E3;      /* ★ 공식 — 배경 · 구분선 */
+  --slate-50:  #EEF1F2;      /* [파생] 페이지 배경용 라이트 */
+
+  /* Ink — PPT 텍스트 회색 3단계 (원본 그대로) */
+  --ink-900: #000000;        /* ★ 공식 */
+  --ink-700: #3B3B3B;        /* ★ 공식 */
+  --ink-500: #7F7F7F;        /* ★ 공식 */
+
+  --white: #FFFFFF;
+
+  /* 웹 전용 확장색 — 상태 표기에만. 채도를 눌러 슬레이트와 어울리게 */
+  --ext-green-500: #2E7D5B;
+  --ext-green-50:  #E9F2EE;
+  --ext-red-500:   #C4453F;
+  --ext-red-50:    #F8ECEB;
+
+  /* ---------- 2. Semantic · Color ---------- */
+  --color-bg:            var(--slate-50);
+  --color-bg-deep:       var(--slate-100);    /* ★ PPT 배경 원본 */
+  --color-surface:       var(--white);
+  --color-surface-sub:   #F6F8F8;
+  --color-surface-dark:  var(--slate-800);    /* 표지 · 히어로 · 모달 무대 */
+  --color-border:        var(--slate-100);
+  --color-border-strong: var(--slate-200);
+  --color-hairline-on-dark: var(--white);     /* 다크 표지의 흰 가로줄 (시그니처) */
+
+  --color-text-primary:   var(--ink-700);
+  --color-text-strong:    var(--ink-900);
+  --color-text-secondary: var(--ink-500);
+  --color-text-tertiary:  var(--slate-400);
+  --color-text-inverse:   var(--white);
+  --color-text-on-dark-sub: var(--slate-300);
+
+  /* 주요 행동 = 슬레이트 다크. 별도의 액센트 색을 두지 않는다 */
+  --color-primary:        var(--slate-800);
+  --color-primary-hover:  var(--slate-700);
+  --color-primary-active: var(--slate-900);
+  --color-primary-subtle: var(--slate-100);
+
+  --color-success:        var(--ext-green-500);   /* 웹 확장색 */
+  --color-success-subtle: var(--ext-green-50);
+  --color-danger:         var(--ext-red-500);     /* 웹 확장색 */
+  --color-danger-subtle:  var(--ext-red-50);
+  --color-warning:        var(--slate-600);       /* 경고도 모노톤 유지 */
+  --color-warning-subtle: var(--slate-100);
+
+  /* 증감 표기 — 웹 확장색 사용. 필요 시 두 값만 교체 */
+  --color-increase: var(--ext-green-500);
+  --color-decrease: var(--ext-red-500);
+
+  /* 데이터 시각화 — 모노톤 슬레이트 그라데이션.
+     강조는 색이 아니라 '어둡기 + 굵기'로. 4시리즈 이하 권장 */
+  --chart-1: var(--slate-800);   /* ★ 주인공 */
+  --chart-2: var(--slate-500);   /* ★ */
+  --chart-3: var(--slate-300);   /* [파생] */
+  --chart-4: var(--slate-100);   /* ★ — 흰 배경에선 테두리 필수 */
+  --chart-5: var(--slate-600);   /* [파생] 5시리즈 이상 시 */
+  --chart-6: var(--slate-200);   /* [파생] */
+  --chart-outline: var(--slate-800);   /* 밝은 조각의 구분 테두리 */
+  --chart-grid: var(--slate-100);
+  --chart-axis: var(--slate-400);
+  /* 원형(도넛) 규격 */
+  --donut-thickness: 26px;
+  --donut-gap: 2.5deg;
+  /* 선형·곡선 규격 */
+  --line-width: 2px;
+  --line-width-emphasis: 3.5px;        /* 강조 = 굵기 차이 */
+  --line-dash-compare: 5 5;            /* 비교 시리즈는 점선 */
+  --area-opacity-top: 0.18;
+  --area-opacity-bottom: 0;
+
+  /* ---------- 3. Typography — Pretendard 단독 (PPT 가이드) ---------- */
+  --font-family-base: "Pretendard Variable", Pretendard, -apple-system,
+                      system-ui, "맑은 고딕", sans-serif;
+  --font-family-mono: "SF Mono", ui-monospace, monospace;
+
+  --text-display-1: 800 40px/52px var(--font-family-base);
+  --text-display-2: 700 32px/42px var(--font-family-base);
+  --text-heading-1: 700 24px/32px var(--font-family-base);
+  --text-heading-2: 700 20px/28px var(--font-family-base);
+  --text-heading-3: 600 16px/24px var(--font-family-base);
+  --text-body-1:    400 15px/23px var(--font-family-base);
+  --text-body-2:    400 14px/21px var(--font-family-base);
+  --text-caption:   500 12px/17px var(--font-family-base);
+  --text-label:     700 12px/16px var(--font-family-base);
+  --letter-spacing-tight: -0.02em;     /* PPT의 좁은 자간(spc -50~-100) 반영 */
+
+  /* 숫자 전용 */
+  --text-data-xl: 800 34px/42px var(--font-family-base);
+  --text-data-lg: 700 27px/34px var(--font-family-base);
+  --text-data-md: 700 20px/27px var(--font-family-base);
+  --text-data-sm: 600 13px/18px var(--font-family-base);
+  --font-feature-data: "tnum" 1;
+
+  /* ---------- 4. Spacing (4px base) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---------- 5. Shape & Elevation ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+  --title-tab-radius: 0 0 10px 10px;    /* 좌상단 제목 탭 (PPT 시그니처) */
+
+  --shadow-1: 0 1px 3px rgba(38, 65, 72, 0.08);
+  --shadow-2: 0 4px 12px rgba(38, 65, 72, 0.10);
+  --shadow-3: 0 12px 32px rgba(38, 65, 72, 0.18);
+
+  --focus-ring: 0 0 0 3px rgba(38, 65, 72, 0.28);
+  --focus-ring-danger: 0 0 0 3px rgba(196, 69, 63, 0.25);
+
+  /* ---------- 6. Motion ---------- */
+  --duration-fast: 130ms;
+  --duration-base: 220ms;
+  --duration-slow: 380ms;
+  --easing-standard: cubic-bezier(0.25, 0, 0, 1);
+
+  /* ---------- 7. Component ---------- */
+  --control-height-sm: 32px;
+  --control-height-md: 40px;
+  --control-height-lg: 48px;
+  --control-padding-x: 16px;
+  --control-font-size: 14px;
+  --control-radius: var(--radius-sm);
+
+  --card-padding: var(--space-6);
+  --card-gap: var(--space-4);
+
+  --table-row-height: 48px;
+  --table-padding-x: var(--space-4);
+  --table-font-size: 14px;
+  --table-header-bg: var(--slate-500);       /* PPT 표 헤더 원본 */
+  --table-header-color: var(--white);
+
+  --kpi-value-size: 30px;
+
+  --toggle-width: 44px;
+  --toggle-height: 24px;
+  --checkbox-size: 18px;
+  --tab-height: 40px;
+  --modal-width: 440px;
+  --tooltip-bg: var(--slate-800);
+  --progress-height: 8px;
+  --avatar-size-sm: 28px;
+  --avatar-size-md: 36px;
+  --avatar-size-lg: 48px;
+  --skeleton-base: var(--slate-100);
+  --skeleton-highlight: var(--white);
+  --numbered-label-bg: var(--slate-500);     /* 01/02/03 번호 라벨 (PPT 시그니처) */
+
+  /* ---------- 8. Brand Assets · CI ----------
+     bcave-ci.svg(풀 로고) · bcave-symbol.svg(심볼) — fill: currentColor.
+     색상은 아래 두 토큰만 허용. 변형·기울임·임의 색 금지 */
+  --logo-color-default: var(--slate-800);
+  --logo-color-on-dark: var(--white);
+  --logo-min-height: 16px;                   /* 풀 로고 최소 높이 */
+  --logo-symbol-min-height: 12px;            /* 심볼 단독 최소 높이 */
+  --logo-clearspace: 0.5;                    /* 로고 높이 대비 확보 여백 비율 */
+  --logo-topbar-height: 19px;                /* 내비게이션 표준 높이 */
+  --logo-hero-height: 34px;                  /* 표지·히어로 표준 높이 */
+}
+`;
 export const AXIS_CSS = `/* ============================================================
    AXIS Design System — Tokens v0.1
    웹 플랫폼 · 보고용 대시보드 공용 토큰

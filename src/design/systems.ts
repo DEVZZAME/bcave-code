@@ -1,12 +1,12 @@
-// 6개 디자인 시스템 — 사용자가 화면/대시보드/HTML 을 만들 때마다 이 중 하나를 고른다.
+// 7개 디자인 시스템 — 사용자가 화면/대시보드/HTML 을 만들 때마다 이 중 하나를 고른다.
 // 규칙(토큰·컴포넌트)은 지키되, LLM 이 매번 레이아웃을 다르게 조립한다(고정 틀 금지).
 // CSS 는 {{BCAVE_DS:<id>}} 자리표시자로 인라인(토큰 0).
 
-import { AXIS_CSS, ATELIER_CSS, PRISM_CSS, PUNCH_CSS, MOCHI_CSS, MEOK_CSS } from "./tokens-css.js";
+import { BCAVE_CSS, AXIS_CSS, ATELIER_CSS, PRISM_CSS, PUNCH_CSS, MOCHI_CSS, MEOK_CSS } from "./tokens-css.js";
 
 export interface DesignSystem {
-  id: string; // "1".."6"
-  key: string; // axis | atelier | prism | punch | mochi | meok
+  id: string; // "1".."7"
+  key: string; // bcave | axis | atelier | prism | punch | mochi | meok
   label: string; // 선택지 표시
   css: string; // 토큰/컴포넌트 CSS
   guide: string; // 사용법(토큰형/컴포넌트형) + 배치 규칙
@@ -17,6 +17,30 @@ export const DS_SAFETY = `*{box-sizing:border-box}body{word-break:keep-all;overf
 
 // 표준 셸(GNB topbar + 컨테이너) — 토큰형(axis/atelier)의 쇼케이스에 정의된 공통 크롬.
 // 토큰 CSS 엔 없어서 여기서 클래스로 제공한다(모든 페이지가 같은 GNB/구조 → 일관된 느낌).
+const BCAVE_SHELL = `:root{--easing:var(--easing-standard);--font-mono:var(--font-family-mono)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 var(--space-6) var(--space-16)}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.93);backdrop-filter:blur(10px);border-bottom:1px solid var(--color-border)}
+.topbar-inner{max-width:1080px;margin:0 auto;padding:0 var(--space-6);height:58px;display:flex;align-items:center;gap:var(--space-4)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:900;font-size:16px;letter-spacing:.03em;color:var(--slate-800)}
+.logo svg{display:block}
+.topbar nav{display:flex;gap:2px;margin-left:auto;overflow-x:auto}
+.topbar nav a{color:var(--ink-500);text-decoration:none;font-size:13px;font-weight:600;padding:7px 11px;border-radius:var(--radius-xs);white-space:nowrap;transition:all var(--duration-fast) var(--easing)}
+.topbar nav a:hover{background:var(--slate-100);color:var(--slate-800)}
+.hero{ margin-top:var(--space-8);background:var(--slate-800);border-radius:var(--radius-lg); padding:var(--space-16) var(--space-10) var(--space-12);color:#fff;box-shadow:var(--shadow-2); }
+.hero .top{text-align:right}
+.hero h1{font-size:36px;line-height:48px;font-weight:800}
+.hero h1 .cave{display:inline-block;vertical-align:-2px;margin-right:10px}
+.hero .rule{height:2px;background:#fff;margin:var(--space-5) 0 var(--space-3)}
+.hero .dept{text-align:right;font-size:14px;font-weight:600;color:var(--slate-300)}
+.hero .foot{display:flex;gap:8px;margin-top:var(--space-10);flex-wrap:wrap;align-items:center}
+.hero .foot span{font-size:12px;font-weight:600;font-family:var(--font-mono);padding:5px 12px;border-radius:var(--radius-full);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:var(--slate-200)}
+.hero .foot em{font-style:normal;font-size:12px;color:var(--slate-400);margin-left:auto}
+.sec-head{position:relative;padding-left:26px;margin-bottom:var(--space-6)}
+.sec-head::before{content:"";position:absolute;left:0;top:-6px;width:11px;height:52px;background:var(--slate-800);border-radius:0 0 6px 6px}
+.sec-head .kicker{font-size:13px;font-weight:500;color:var(--ink-500)}
+.sec-head h2{font-size:26px;line-height:34px;font-weight:800;color:var(--color-text-strong);margin-top:2px}
+.sec-head p{color:var(--ink-500);font-size:14px;margin-top:var(--space-2)}
+@media(max-width:640px){.hero h1{font-size:25px;line-height:36px} .hero{padding:var(--space-10) var(--space-6)}}`;
 const AXIS_SHELL = `.topbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-border)}
 .topbar-inner{max-width:1040px;margin:0 auto;padding:0 var(--space-6);height:56px;display:flex;align-items:center;gap:var(--space-4)}
 .logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:16px;letter-spacing:.02em;color:var(--color-text-primary)}
@@ -149,6 +173,15 @@ const MEOK_SHELL = `:root{--easing:var(--easing-standard);--font-display:var(--f
 @media(max-width:640px){.hero{flex-direction:column;gap:var(--space-5)} .hero .vlabel{writing-mode:horizontal-tb;border-left:none;border-top:1px solid var(--meok-100);padding:var(--space-2) 0 0} .hero .body h1{font-size:28px}}`;
 const SHELL_NOTE = "\n표준 셸(모든 페이지 공통 — 빼거나 새로 만들지 말 것): <body> 안에 GNB <div class=\"topbar\"><div class=\"topbar-inner\"><div class=\"logo\">제품/서비스명</div><nav><a href=\"#\">메뉴1</a><a href=\"#\">메뉴2</a>…</nav></div></div> 다음에 <main class=\"wrap\"><div class=\"page-head\"><h1>제목</h1><p>부제</p></div> …내용… </main>. GNB·.wrap·.page-head 는 이 시스템 모든 화면의 고정 크롬이다.\n섹션 헤더 규칙(디자인 시스템 시그니처 — 반드시 지킬 것): 각 주요 섹션은 <div class=\"sec-head\"> 로 시작한다. 그 안에 (1)영문 오버라인(예: OVERVIEW / PRINCIPLES / TRENDS / DETAILS — 대문자 짧은 영단어) (2)국문 제목 h2 (3)그 아래 얇은 구분선. 구분선·틱은 CSS가 자동으로 그린다(AXIS는 sec-head 자체가, ATELIER는 <div class=\"hairline\"></div> 를 마지막에 넣어야 함 — 각 가이드 마크업 참고). 페이지 최상단(page-head 대신 더 강조하고 싶으면)에는 히어로 <div class=\"hero\"> 를 둘 수 있다: 오버라인/뱃지 + 큰 제목(강조 단어는 <em>) + 설명 한 줄. 콘텐츠 배치는 매번 달라도, 이 오버라인+제목+구분선 헤더 패턴은 모든 섹션에서 동일하게 유지한다.";
 
+const BCAVE_GUIDE = `BCAVE — 자사 브랜드 · 모노톤 슬레이트 · PPT 표지 문법(3색 모노톤, 하나만 어둡게, 흰 헤어라인). 컴포넌트 클래스 없는 "토큰형".
+- 색: 배경 var(--color-bg)(밝은 슬레이트) · 표면 var(--color-surface)(흰색) · 텍스트 var(--color-text-primary)/강한 제목 var(--color-text-strong) · 보조 var(--ink-500) · 강조/다크 var(--color-primary)(=slate-800) · 슬레이트 스케일 var(--slate-800|300|200|100)
+- 타이포: font: var(--text-display-1|heading-1|body-1|…). 라벨/메타는 모노 var(--font-family-mono). 지표 var(--text-data-*)
+- 형태: 라운드 var(--radius-xs|md|lg|full), 그림자 var(--shadow-1|2), 흰 2px 헤어라인, 다크 슬레이트 블록. 절제된 3색 모노톤(강조는 어두운 슬레이트 하나로).
+- 차트 var(--chart-1..6). body{background:var(--color-bg);color:var(--color-text-primary);font-family:var(--font-family-base)}. Pretendard <link> 필요.
+- 예) 카드: <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--card-padding);box-shadow:var(--shadow-1)">…</div>
+- 히어로(브랜드 표지형, 다크 슬레이트 박스+흰 헤어라인+우측정렬): <div class="hero"><div class="top"><h1><span class="cave">B.CAVE</span>핵심 제목</h1><div class="rule"></div><div class="dept">부서/팀명</div></div><div class="foot"><span>태그</span><span>태그</span><em>날짜/버전</em></div></div>  (cave=로고 자리, rule=흰 2px 선, foot span=모노 칩)
+- 섹션 헤더(모든 섹션 필수): <div class="sec-head"><div class="kicker">English Kicker</div><h2>국문 제목</h2><p>한 줄 설명</p></div>  ← 왼쪽 다크 라운드 탭은 sec-head 가 자동으로 그림`;
+
 const AXIS_GUIDE = `AXIS — 밝은 코발트 · 웹 플랫폼/대시보드 (모던 프로페셔널). 컴포넌트 클래스가 없는 "토큰형" — 아래 CSS 변수로 컴포넌트를 직접 만든다.
 - 색: 배경 var(--color-bg) · 표면 var(--color-surface) · 보더 var(--color-border) · 텍스트 var(--color-text-primary|secondary|tertiary) · 강조 var(--color-primary)(코발트) · 증감 var(--color-increase)녹/var(--color-decrease)적 · 상태 success/danger/warning(+ -subtle 배경)
 - 타이포(축약 프로퍼티): font: var(--text-display-1|display-2|heading-1|heading-2|heading-3|body-1|body-2|caption). 지표 숫자 font: var(--text-data-lg|md|sm) 에 font-feature-settings:var(--font-feature-data); letter-spacing:var(--letter-spacing-data)
@@ -213,24 +246,26 @@ const MEOK_GUIDE = `MEOK — 한국 전통 지물 · 먹 농담 · 한지+인주
 - 섹션 헤더(모든 섹션 필수): <div class="sec-head"><div class="vlabel">원칙</div><div><h2>국문 제목</h2></div></div>  (vlabel=인주 세로 레이블)`;
 
 export const DESIGN_SYSTEMS: Record<string, DesignSystem> = {
-  "1": { id: "1", key: "axis", label: "1. AXIS — 밝은 코발트 · 모던 프로페셔널 (웹/대시보드, 토큰형)", css: AXIS_CSS + "\n" + AXIS_SHELL, guide: AXIS_GUIDE + SHELL_NOTE },
-  "2": { id: "2", key: "atelier", label: "2. ATELIER — 다크 에디토리얼 · 골드+세리프 (고급/차분)", css: ATELIER_CSS + "\n" + ATELIER_SHELL, guide: ATELIER_GUIDE + SHELL_NOTE },
-  "3": { id: "3", key: "prism", label: "3. PRISM — 글래스모피즘 · 바이올렛 그라디언트 · 유리 (트렌디/화려)", css: PRISM_CSS + "\n" + PRISM_SHELL, guide: PRISM_GUIDE + SHELL_NOTE_TOKEN },
-  "4": { id: "4", key: "punch", label: "4. PUNCH — 네오 브루탈리즘 · 잉크 보더 · 옐로/핑크 (에너지/젊음)", css: PUNCH_CSS + "\n" + PUNCH_SHELL, guide: PUNCH_GUIDE + SHELL_NOTE_TOKEN },
-  "5": { id: "5", key: "mochi", label: "5. MOCHI — 파스텔 · 풀 라운드 · 통통 튀는 (귀여움/캐주얼)", css: MOCHI_CSS + "\n" + MOCHI_SHELL, guide: MOCHI_GUIDE + SHELL_NOTE_TOKEN },
-  "6": { id: "6", key: "meok", label: "6. MEOK — 한국 전통 · 먹 농담 · 한지+인주 · 세로 레이블 (헤리티지/차분)", css: MEOK_CSS + "\n" + MEOK_SHELL, guide: MEOK_GUIDE + SHELL_NOTE_TOKEN },
+  "1": { id: "1", key: "bcave", label: "1. BCAVE — 자사 브랜드 · 모노톤 슬레이트 · PPT 표지 문법 (기본/공식)", css: BCAVE_CSS + "\n" + BCAVE_SHELL, guide: BCAVE_GUIDE + SHELL_NOTE_TOKEN },
+  "2": { id: "2", key: "axis", label: "2. AXIS — 밝은 코발트 · 모던 프로페셔널 (웹/대시보드, 토큰형)", css: AXIS_CSS + "\n" + AXIS_SHELL, guide: AXIS_GUIDE + SHELL_NOTE },
+  "3": { id: "3", key: "atelier", label: "3. ATELIER — 다크 에디토리얼 · 골드+세리프 (고급/차분)", css: ATELIER_CSS + "\n" + ATELIER_SHELL, guide: ATELIER_GUIDE + SHELL_NOTE },
+  "4": { id: "4", key: "prism", label: "4. PRISM — 글래스모피즘 · 바이올렛 그라디언트 · 유리 (트렌디/화려)", css: PRISM_CSS + "\n" + PRISM_SHELL, guide: PRISM_GUIDE + SHELL_NOTE_TOKEN },
+  "5": { id: "5", key: "punch", label: "5. PUNCH — 네오 브루탈리즘 · 잉크 보더 · 옐로/핑크 (에너지/젊음)", css: PUNCH_CSS + "\n" + PUNCH_SHELL, guide: PUNCH_GUIDE + SHELL_NOTE_TOKEN },
+  "6": { id: "6", key: "mochi", label: "6. MOCHI — 파스텔 · 풀 라운드 · 통통 튀는 (귀여움/캐주얼)", css: MOCHI_CSS + "\n" + MOCHI_SHELL, guide: MOCHI_GUIDE + SHELL_NOTE_TOKEN },
+  "7": { id: "7", key: "meok", label: "7. MEOK — 한국 전통 · 먹 농담 · 한지+인주 · 세로 레이블 (헤리티지/차분)", css: MEOK_CSS + "\n" + MEOK_SHELL, guide: MEOK_GUIDE + SHELL_NOTE_TOKEN },
 };
 
 const ALIAS: Record<string, string> = {
-  "1": "1", "1번": "1", axis: "1", 액시스: "1",
-  "2": "2", "2번": "2", atelier: "2", 아틀리에: "2", 다크: "2",
-  "3": "3", "3번": "3", prism: "3", 프리즘: "3", 글래스: "3", 유리: "3",
-  "4": "4", "4번": "4", punch: "4", 펀치: "4", 브루탈: "4",
-  "5": "5", "5번": "5", mochi: "5", 모찌: "5", 파스텔: "5",
-  "6": "6", "6번": "6", meok: "6", 먹: "6", 한지: "6", 전통: "6",
+  "1": "1", "1번": "1", bcave: "1", 비케이브: "1", 자사: "1", 브랜드: "1", 공식: "1",
+  "2": "2", "2번": "2", axis: "2", 액시스: "2",
+  "3": "3", "3번": "3", atelier: "3", 아틀리에: "3", 다크: "3",
+  "4": "4", "4번": "4", prism: "4", 프리즘: "4", 글래스: "4", 유리: "4",
+  "5": "5", "5번": "5", punch: "5", 펀치: "5", 브루탈: "5",
+  "6": "6", "6번": "6", mochi: "6", 모찌: "6", 파스텔: "6",
+  "7": "7", "7번": "7", meok: "7", 먹: "7", 한지: "7", 전통: "7",
 };
 
-/** 메시지에서 디자인 시스템 선택(1~6 / 이름)을 찾는다. 없으면 null. */
+/** 메시지에서 디자인 시스템 선택(1~7 / 이름)을 찾는다. 없으면 null. */
 export function findSystem(message?: string): DesignSystem | null {
   if (!message) return null;
   const m = message.toLowerCase();
@@ -242,12 +277,12 @@ export function findSystem(message?: string): DesignSystem | null {
   return null;
 }
 
-/** 6개 선택지 목록(되묻기용). */
+/** 7개 선택지 목록(되묻기용). */
 export function systemsMenu(): string {
   return Object.values(DESIGN_SYSTEMS).map((s) => "  " + s.label).join("\n");
 }
 
-// "알아서"일 때 6개를 순환 배정(매번 다른 시스템).
+// "알아서"일 때 7개를 순환 배정(매번 다른 시스템).
 let _lastAuto = "";
 export function rotateSystem(): DesignSystem {
   const ids = Object.keys(DESIGN_SYSTEMS).filter((i) => i !== _lastAuto);
