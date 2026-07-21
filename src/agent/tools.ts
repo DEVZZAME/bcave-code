@@ -325,6 +325,24 @@ function reviewHtml(content: string, filePath: string): string[] {
     if (/<img\b/i.test(content) && !/img[^{}]*\{[^}]*max-width/i.test(styleCss) && !/<img[^>]*style=["'][^"']*max-width/i.test(content)) {
       issues.push("반응형: <img> 에 max-width:100% 가 없습니다(원본 크기로 컨테이너를 넘칠 수 있음).");
     }
+
+    // 결과물에 들어가면 안 되는 "제작 과정·메타·다음 단계" 서술 (스크립트 제외한 표시 텍스트에서)
+    const visible = content.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
+    if (/다시 ?구성했|재구성했|구성했습니다|반영했습니다|바꿨습니다|데이터 ?출처|단일 ?HTML|바로 열 수 있|원하시면|다음 단계로|추가할 수 있(?:어요|습니다)/.test(visible)) {
+      issues.push("결과물에 제작 과정·데이터 출처·'원하시면 다음 단계로…' 같은 설명 문구가 들어가 있습니다. 이런 서술은 파일에서 빼고 채팅으로만 말하세요(대시보드엔 실제 콘텐츠만).");
+    }
+    // 로컬 절대경로가 표시 텍스트로 노출
+    if (/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s"'<>]+/.test(visible)) {
+      issues.push("결과물에 로컬 파일 절대경로가 노출돼 있습니다. 화면에 경로를 표시하지 마세요.");
+    }
+    // 제목(h1)이 문장형/과다 — 보고서 제목은 짧은 명사구
+    const h1m = content.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1m) {
+      const h1text = h1m[1].replace(/<[^>]+>/g, "").trim();
+      if (/[.。]$/.test(h1text) || h1text.length > 40) {
+        issues.push(`h1 제목이 문장형이거나 너무 깁니다("${h1text.slice(0, 30)}…"). 보고서 제목처럼 짧은 명사구(마침표 없이)로, 부연은 부제로 옮기세요.`);
+      }
+    }
   }
 
   return issues;
@@ -421,7 +439,10 @@ export async function executeTool(
           `- 위 폰트·팔레트·모양·모션·시그니처를 실제로 적용. "가운데 카드 + 인디고 그라디언트 + Inter + rounded-2xl + 옅은 그림자" 같은 디폴트 룩 금지.\n` +
           `- 폰트는 <head> 에 Google Fonts <link> 추가 후 CSS 에서 사용.\n` +
           `- 반응형(모바일 우선): viewport meta, *{box-sizing:border-box}, flex/grid + minmax(0,1fr), max-width(고정 px 폭 금지), @media, img max-width:100%. 저장 시 자동 검토가 위반을 잡음.\n` +
-          `- 상태 처리: hover/focus/active/disabled + loading/empty/error.\n\n` +
+          `- 상태 처리: hover/focus/active/disabled + loading/empty/error.\n` +
+          `- 이 디렉션은 "시각(폰트·색·모양·모션)"만 바꾼다. 제목·문구·카피에 디렉션 분위기("따뜻하고 친근하게" 등)를 넣지 말 것.\n` +
+          `- 결과물(파일)에는 실제 콘텐츠만. 제작 과정·데이터 출처 경로·"다시 구성했습니다"·"단일 HTML"·"원하시면 다음 단계로…" 같은 설명은 넣지 말고 채팅으로만 말할 것.\n` +
+          `- 제목(h1)은 보고서 제목처럼 짧고 사실적인 명사구(끝에 마침표·문장 금지). 헤더는 간결하게(짧은 eyebrow + h1 + 필요시 한 줄 부제).\n\n` +
           `## 다른 디렉션이 필요하면 style 인자로 다시 호출\n${directionMenu()}\n` +
           `(사용자가 특정 스타일을 말하면 그걸로. 여러 화면을 만들 땐 화면마다 다른 디렉션을 써서 획일화를 피하세요.)`
         );
