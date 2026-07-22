@@ -27,16 +27,10 @@ export function classifyUiSurface(message?: string): UiSurface {
  * 디자인시스템 제약은 대시보드/리포트와 서비스 맥락의 앱 UI에만 적용한다.
  */
 export function isDashboardArtifactRequest(message: string): boolean {
-  if (isPresentationRequest(message)) return false;
   if (/(?:대시보드|dashboard)\s*(?:말고|아닌|아니라|제외|없이)|(?:대시보드|dashboard)(?:라는)?\s*(?:문자열|단어|표현)|요청에\s*대해서만/i.test(message)) return false;
   const dashboardNoun = /(?:대시보드|dashboard)/i.test(message);
   const creationIntent = /(?:만들어|만들기|생성(?:해|하고|하여|하기|해줘|해주세요)?|제작(?:해|하고|하여|하기|해줘|해주세요)?|구현(?:해|하고|하여|하기|해줘|해주세요)?|구축(?:해|하고|하여|하기|해줘|해주세요)?|작성(?:해|하고|하여|하기|해줘|해주세요)?|그려(?:줘|주세요)?|구성(?:해|하고|하여|하기|해줘|해주세요)?|create|build|generate|implement)/i.test(message);
   return dashboardNoun && creationIntent;
-}
-
-/** PowerPoint/발표자료 요청은 보고서라는 단어가 있어도 HTML 대시보드가 아니다. */
-export function isPresentationRequest(message: string): boolean {
-  return /(피피티|파워포인트|프레젠테이션|발표\s*자료|슬라이드|\bpptx?\b|power\s*point)/i.test(message);
 }
 
 /** 배포 플랫폼이 메시지에 명시됐으면 그 이름을 반환. 없으면 null. */

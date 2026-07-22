@@ -27,7 +27,6 @@ export interface BcaveConfig {
   maxVerifyRounds: number; // 자동 검증-수정 반복 최대 횟수
   smokeTest: boolean; // 앱 생성 후 서버를 실제로 띄워 HTTP 응답(헬스체크)까지 확인
   designSystem: string; // 대시보드와 서비스의 모든 웹 UI에 적용할 디자인 시스템(빈 문자열이면 비활성)
-  pptTemplatePath: string; // 조직/팀별 PPT 템플릿 경로(빈 문자열이면 작업 폴더에서 자동 탐색)
 
   // ── 레거시/폴백: 직접 OpenAI 키 사용 ──
   apiKey: string;
@@ -57,7 +56,6 @@ const DEFAULT_CONFIG: BcaveConfig = {
   maxVerifyRounds: 2,
   smokeTest: true,
   designSystem: "bcave",
-  pptTemplatePath: "",
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
 };
@@ -70,13 +68,59 @@ function getConfigPath(): string {
   return path.join(getConfigDir(), "config.json");
 }
 
+function sanitizeConfig(value: unknown): Partial<BcaveConfig> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const input = value as Record<string, unknown>;
+  const output: Partial<BcaveConfig> = {};
+  for (const key of Object.keys(DEFAULT_CONFIG) as Array<keyof BcaveConfig>) {
+    const candidate = input[key];
+    const fallback = DEFAULT_CONFIG[key];
+    if (Array.isArray(fallback)) {
+      if (Array.isArray(candidate) && candidate.every((item) => typeof item === "string")) {
+        (output as Record<string, unknown>)[key] = [...candidate];
+      }
+    } else if (typeof candidate === typeof fallback) {
+      (output as Record<string, unknown>)[key] = candidate;
+    }
+  }
+  return output;
+}
+
+export function configFileIssues(): string[] {
+  const configPath = getConfigPath();
+  if (!fs.existsSync(configPath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return ["설정 루트는 JSON 객체여야 합니다."];
+    const input = parsed as Record<string, unknown>;
+    const issues: string[] = [];
+    for (const key of Object.keys(DEFAULT_CONFIG) as Array<keyof BcaveConfig>) {
+      if (!(key in input)) continue;
+      const candidate = input[key];
+      const fallback = DEFAULT_CONFIG[key];
+      const valid = Array.isArray(fallback)
+        ? Array.isArray(candidate) && candidate.every((item) => typeof item === "string")
+        : typeof candidate === typeof fallback;
+      if (!valid) issues.push(`${key}: ${Array.isArray(fallback) ? "문자열 배열" : typeof fallback} 형식 필요`);
+    }
+    return issues;
+  } catch {
+    return ["config.json JSON 구문이 손상됐습니다."];
+  }
+}
+
 export function loadConfig(): BcaveConfig {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
     return { ...DEFAULT_CONFIG };
   }
-  const raw = fs.readFileSync(configPath, "utf-8");
-  const parsed = JSON.parse(raw) as Partial<BcaveConfig>;
+  let parsed: Partial<BcaveConfig>;
+  try {
+    const raw = fs.readFileSync(configPath, "utf-8");
+    parsed = sanitizeConfig(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
   const merged = { ...DEFAULT_CONFIG, ...parsed };
   // 환경변수 BCAVE_HUB_URL 이 있으면 우선 적용 (사내 배포 시 일괄 지정 가능)
   if (process.env.BCAVE_HUB_URL) merged.hubUrl = process.env.BCAVE_HUB_URL;
@@ -88,7 +132,15 @@ export function saveConfig(partial: Partial<BcaveConfig>): void {
   fs.mkdirSync(configDir, { recursive: true });
   const existing = loadConfig();
   const merged = { ...existing, ...partial };
-  fs.writeFileSync(getConfigPath(), JSON.stringify(merged, null, 2), "utf-8");
+  const configPath = getConfigPath();
+  const temporaryPath = `${configPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  try {
+    fs.writeFileSync(temporaryPath, JSON.stringify(merged, null, 2), { encoding: "utf-8", mode: 0o600 });
+    fs.renameSync(temporaryPath, configPath);
+    try { fs.chmodSync(configPath, 0o600); } catch { /* Windows 등 권한 모드 미지원 환경 */ }
+  } finally {
+    try { if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath); } catch { /* noop */ }
+  }
 }
 
 /** HUB 로그인 상태 여부 (Access Token 보유) */

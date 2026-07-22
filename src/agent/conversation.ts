@@ -1,7 +1,4 @@
 import OpenAI from "openai";
-import { spawnSync, spawn } from "node:child_process";
-import net from "node:net";
-import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
@@ -10,466 +7,17 @@ import { executeTool, getToolCategory, isDevServerCommand } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel, classifyTask } from "./router.js";
-import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest, isPresentationRequest, detectDeployTarget } from "./request-classification.js";
+import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest, detectDeployTarget } from "./request-classification.js";
 import { designRules, designSystemDir, designSystemNames, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
 import { hubRefresh } from "../auth/hub.js";
-import { validatePresentationGate } from "./presentation-validation.js";
+import { detectVerifyCommands, runVerify } from "./build-verification.js";
+import { auditAppCompleteness } from "./app-audit.js";
+export { auditApiContracts, auditUiSource, validateApiResponse } from "./app-audit.js";
+import { smokeTest } from "./smoke-test.js";
+import { buildSystemPrompt } from "./system-prompt.js";
+export { smokeTest } from "./smoke-test.js";
 
 const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|py|go|rs|java|rb|php|cs|kt|swift|scss|sass|less|css|json|astro)$/i;
-
-function pptxSlideCount(filePath: string): number {
-  if (!fs.existsSync(filePath)) return 0;
-  const result = spawnSync("unzip", ["-p", filePath, "ppt/presentation.xml"], { encoding: "utf8", timeout: 10_000 });
-  if (result.status !== 0) return 0;
-  return String(result.stdout).match(/<p:sldId\b/g)?.length ?? 0;
-}
-
-export function pptxPackageIssues(filePath: string): string[] {
-  if (!fs.existsSync(filePath)) return ["PPTX 파일이 없습니다."];
-  const listing = spawnSync("unzip", ["-Z1", filePath], { encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
-  if (listing.status !== 0) return ["PPTX 압축 구조를 읽을 수 없습니다."];
-  const names = String(listing.stdout).split("\n").map((name) => name.trim()).filter(Boolean);
-  const duplicateNames = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
-  const issues: string[] = [];
-  if (duplicateNames.length) issues.push(`PPTX 내부에 같은 파일이 중복 저장됐습니다(${duplicateNames.length}개).`);
-  const integrity = spawnSync("unzip", ["-t", filePath], { encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
-  if (integrity.status !== 0) issues.push("PPTX 압축 무결성 검사에 실패했습니다.");
-  if (!names.includes("[Content_Types].xml") || !names.includes("ppt/presentation.xml") || !names.includes("ppt/_rels/presentation.xml.rels")) {
-    issues.push("PowerPoint 필수 문서 구조가 누락됐습니다.");
-  }
-  const registeredSlides = pptxRegisteredSlidePaths(filePath);
-  if (!registeredSlides.length) {
-    const orphanSlides = names.filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).length;
-    issues.push(`presentation.xml의 <p:sldIdLst>에 등록된 슬라이드가 0장입니다${orphanSlides ? ` (패키지에는 미등록 slide XML ${orphanSlides}개 존재)` : ""}. 슬라이드 관계와 <p:sldId>를 복구하세요.`);
-  }
-  for (const slidePath of registeredSlides) {
-    const slideXml = unzipText(filePath, slidePath);
-    const relPath = path.posix.join(path.posix.dirname(slidePath), "_rels", `${path.posix.basename(slidePath)}.rels`);
-    const relXml = names.includes(relPath) ? unzipText(filePath, relPath) : "";
-    const relationshipIds = new Set([...relXml.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"/g)].map((match) => match[1]));
-    const referencedIds = [...slideXml.matchAll(/\br:(?:embed|link|id)="([^"]+)"/g)].map((match) => match[1]);
-    const missingIds = [...new Set(referencedIds.filter((id) => !relationshipIds.has(id)))];
-    if (missingIds.length) issues.push(`${path.posix.basename(slidePath)}의 이미지·링크 관계가 누락됐습니다(${missingIds.join(", ")}).`);
-    for (const match of relXml.matchAll(/<Relationship\b([^>]*)>/g)) {
-      const attrs = match[1];
-      if (/\bTargetMode="External"/.test(attrs)) continue;
-      const target = attrs.match(/\bTarget="([^"]+)"/)?.[1];
-      if (!target) continue;
-      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(slidePath), target));
-      if (!names.includes(resolved)) issues.push(`${path.posix.basename(slidePath)}가 존재하지 않는 리소스를 참조합니다(${resolved}).`);
-    }
-  }
-  return issues;
-}
-
-function unzipText(filePath: string, entry: string): string {
-  const result = spawnSync("unzip", ["-p", filePath, entry], { encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
-  return result.status === 0 ? String(result.stdout) : "";
-}
-
-function pptxRegisteredSlidePaths(filePath: string): string[] {
-  const presentation = unzipText(filePath, "ppt/presentation.xml");
-  const relationships = unzipText(filePath, "ppt/_rels/presentation.xml.rels");
-  const targets = new Map<string, string>();
-  for (const match of relationships.matchAll(/<Relationship\b([^>]*)>/g)) {
-    const attrs = match[1];
-    if (!/\bType="[^"]+\/slide"/.test(attrs)) continue;
-    const id = attrs.match(/\bId="([^"]+)"/)?.[1];
-    const target = attrs.match(/\bTarget="([^"]+)"/)?.[1];
-    if (id && target) targets.set(id, path.posix.normalize(`ppt/${target}`));
-  }
-  return [...presentation.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"[^>]*>/g)].map((match) => targets.get(match[1]) ?? "").filter(Boolean);
-}
-
-function pptxSlideShapeSignature(filePath: string, slidePath: string): string {
-  const xml = unzipText(filePath, slidePath);
-  return [...xml.matchAll(/<(?:p|a):cNvPr\b[^>]*\bid="(\d+)"/g)].map((match) => match[1]).sort((a, b) => Number(a) - Number(b)).join(",");
-}
-
-function pptxSlideShapeMap(filePath: string, slidePath: string): Map<string, string> {
-  const xml = unzipText(filePath, slidePath);
-  const shapes = new Map<string, string>();
-  for (const match of xml.matchAll(/<p:sp\b[\s\S]*?<p:cNvPr\b([^>]*)>[\s\S]*?<\/p:sp>/g)) {
-    const id = match[1].match(/\bid="([^"]+)"/)?.[1];
-    const name = match[1].match(/\bname="([^"]*)"/)?.[1] ?? "";
-    if (id) shapes.set(id, name);
-  }
-  return shapes;
-}
-
-function pptxSlideVisualSignature(filePath: string, slidePath: string): string {
-  const xml = unzipText(filePath, slidePath)
-    // 표 행 복제·높이 조정·gridSpan/hMerge는 허용된 내용 적응이므로 표 내부는 외형 대조에서 제외한다.
-    .replace(/<a:tbl>[\s\S]*?<\/a:tbl>/g, "<a:tbl/>")
-    // 텍스트박스는 위치를 유지하는 한 내용에 맞춘 폭·높이 변경을 허용한다.
-    .replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (shape) => shape
-      .replace(/<p:txBody>[\s\S]*?<\/p:txBody>/g, "<p:txBody/>")
-      .replace(/<a:ext\b[^>]*\/>/g, "<a:ext/>"));
-  const visualParts = [
-    ...[...xml.matchAll(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/g)].map((match) => match[0]),
-    ...[...xml.matchAll(/<a:(solidFill|gradFill|pattFill|prstGeom|custGeom|ln)\b[^>]*>[\s\S]*?<\/a:\1>/g)].map((match) => match[0]),
-    ...[...xml.matchAll(/<a:(?:noFill|solidFill|gradFill|pattFill)\b[^>]*\/>/g)].map((match) => match[0]),
-  ];
-  return visualParts.map((part) => part.replace(/\s+/g, "")).join("|");
-}
-
-export function pptxTemplateFidelityIssues(templatePath: string, outputPath: string): string[] {
-  const sourceSlides = pptxRegisteredSlidePaths(templatePath);
-  const sourceByShapeSignature = new Map(sourceSlides.map((slide) => [pptxSlideShapeSignature(templatePath, slide), slide]));
-  const allowedSignatures = new Set(sourceByShapeSignature.keys());
-  const outputSlides = pptxRegisteredSlidePaths(outputPath);
-  const issues: string[] = [];
-  for (const [index, slide] of outputSlides.entries()) {
-    const outputShapes = pptxSlideShapeMap(outputPath, slide);
-    const candidates = sourceSlides.map((sourceSlide) => {
-      const sourceShapes = pptxSlideShapeMap(templatePath, sourceSlide);
-      const added = [...outputShapes.keys()].filter((id) => !sourceShapes.has(id));
-      const removed = [...sourceShapes.keys()].filter((id) => !outputShapes.has(id));
-      return { sourceSlide, sourceShapes, added, removed, distance: added.length + removed.length };
-    }).sort((a, b) => a.distance - b.distance);
-    const closest = candidates[0];
-    if (closest && closest.added.length) {
-      const detail = closest.added.slice(0, 6).map((id) => `${id}${outputShapes.get(id) ? ` '${outputShapes.get(id)}'` : ""}`).join(", ");
-      issues.push(`${path.posix.basename(slide)}: 원본 ${path.posix.basename(closest.sourceSlide)}에 없는 신규 <p:sp> 도형 ${closest.added.length}개 추가됨 (${detail})`);
-    }
-    if (closest && closest.removed.length) {
-      const detail = closest.removed.slice(0, 6).map((id) => `${id}${closest.sourceShapes.get(id) ? ` '${closest.sourceShapes.get(id)}'` : ""}`).join(", ");
-      issues.push(`${path.posix.basename(slide)}: 원본 ${path.posix.basename(closest.sourceSlide)}의 <p:sp> 도형 ${closest.removed.length}개 삭제됨 (${detail})`);
-    }
-  }
-  const unmatched = outputSlides.map((slide, index) => ({ index: index + 1, signature: pptxSlideShapeSignature(outputPath, slide) }))
-    .filter(({ signature }) => !signature || !allowedSignatures.has(signature)).map(({ index }) => index);
-  if (unmatched.length) issues.push(`${unmatched.slice(0, 8).join(", ")}페이지가 원본 템플릿 슬라이드의 구성요소를 그대로 복제하지 않았습니다. 기존 요소를 전부 지우거나 새 텍스트 박스로 다시 그리면 안 됩니다.`);
-  const visuallyChanged = outputSlides.map((slide, index) => {
-    const sourceSlide = sourceByShapeSignature.get(pptxSlideShapeSignature(outputPath, slide));
-    return { index: index + 1, changed: !sourceSlide || pptxSlideVisualSignature(outputPath, slide) !== pptxSlideVisualSignature(templatePath, sourceSlide) };
-  }).filter(({ changed }) => changed).map(({ index }) => index);
-  if (visuallyChanged.length) issues.push(`${visuallyChanged.slice(0, 8).join(", ")}페이지의 도형 크기·위치·색상 구조가 원본과 달라졌습니다. 원본 페이지를 그대로 복제하고 텍스트 내용만 바꾸세요.`);
-  return issues;
-}
-
-function pptxPathsFromText(value: string, cwd: string): string[] {
-  const matches = [
-    ...value.matchAll(/`([^`]+\.pptx)`/gi),
-    ...value.matchAll(/["']([^"']+\.pptx)["']/gi),
-    ...value.matchAll(/(?:^|\s)((?:\.{1,2}\/|\/)[^\s"'`]+\.pptx)(?=\s|$)/gi),
-  ].map((match) => path.resolve(cwd, match[1].trim()));
-  return [...new Set(matches)];
-}
-
-function presentationSourcePathsFromText(value: string, cwd: string): string[] {
-  const matches = [
-    ...value.matchAll(/`([^`]+\.(?:md|txt|csv|tsv|xlsx|xls|json|pdf))`/gi),
-    ...value.matchAll(/["']([^"']+\.(?:md|txt|csv|tsv|xlsx|xls|json|pdf))["']/gi),
-    ...value.matchAll(/(?:^|\s)((?:(?:\.{1,2}\/|\/)?)[^\s"'`]+\.(?:md|txt|csv|tsv|xlsx|xls|json|pdf))(?=\s|$)/gi),
-  ].map((match) => path.resolve(cwd, match[1].trim()));
-  return [...new Set(matches)];
-}
-
-function resolvePresentationOutputPath(value: string, cwd: string, templatePath: string): string {
-  const explicitOutputs = pptxPathsFromText(value, cwd).filter((file) => path.resolve(file) !== path.resolve(templatePath));
-  if (explicitOutputs.length) return explicitOutputs[explicitOutputs.length - 1];
-  const source = presentationSourcePathsFromText(value, cwd)[0];
-  if (source) return path.join(path.dirname(source), `${path.basename(source, path.extname(source))}.pptx`);
-  return path.join(cwd, "결과.pptx");
-}
-
-function autoDetectPresentationTemplate(cwd: string): string {
-  try {
-    const candidates = fs.readdirSync(cwd).filter((name) => /\.pptx$/i.test(name)).map((name) => path.join(cwd, name));
-    const named = candidates.filter((file) => /(?:template|템플릿|양식)/i.test(path.basename(file)));
-    return (named.length === 1 ? named[0] : candidates.length === 1 ? candidates[0] : "");
-  } catch { return ""; }
-}
-
-function presentationFilesIn(directories: string[]): string[] {
-  const files: string[] = [];
-  for (const directory of [...new Set(directories)]) {
-    try {
-      for (const name of fs.readdirSync(directory)) {
-        if (/\.pptx$/i.test(name)) files.push(path.join(directory, name));
-      }
-    } catch { /* 접근할 수 없는 후보 폴더는 건너뜀 */ }
-  }
-  return files;
-}
-
-/** 이 저장소의 검증(빌드/타입체크) 명령을 감지 — package.json 스크립트 우선, 없으면 tsconfig 로 tsc. */
-function detectVerifyCommands(cwd: string, override: string[]): string[] {
-  if (override && override.length) return override;
-  try {
-    const pkgPath = path.join(cwd, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      const scripts = (JSON.parse(fs.readFileSync(pkgPath, "utf8")).scripts || {}) as Record<string, string>;
-      // 빠르고 부작용 적은 순: 타입체크 → 빌드 → 린트 (테스트는 느리거나 대화형일 수 있어 자동 실행 제외)
-      for (const name of ["typecheck", "type-check", "tsc", "build", "lint"]) {
-        if (scripts[name]) return [`npm run ${name} --silent`];
-      }
-    }
-    if (fs.existsSync(path.join(cwd, "tsconfig.json"))) return ["npx --no-install tsc --noEmit"];
-  } catch { /* 감지 실패 → 검증 없음 */ }
-  return [];
-}
-
-/** 검증 명령들을 실행해 처음 실패한 것의 {cmd, output} 반환. 모두 통과면 null. */
-function runVerify(cmds: string[], cwd: string): { cmd: string; output: string } | null {
-  for (const cmd of cmds) {
-    let r;
-    try {
-      r = spawnSync(cmd, { cwd, shell: true, encoding: "utf8", timeout: 180_000, maxBuffer: 8 * 1024 * 1024 });
-    } catch { continue; }
-    if (r.status !== 0) {
-      const raw = `${r.stdout || ""}\n${r.stderr || ""}`.trim();
-      // 오류는 보통 끝부분에 몰려 있으므로 뒤에서 자른다.
-      const output = raw.length > 5000 ? "…\n" + raw.slice(-5000) : raw;
-      return { cmd, output: output || `exit code ${r.status}` };
-    }
-  }
-  return null;
-}
-
-/** 서버 시작 명령 감지 — package.json 의 dev/start/serve. */
-function detectStartCommand(cwd: string): string | null {
-  try {
-    const pkg = path.join(cwd, "package.json");
-    if (!fs.existsSync(pkg)) return null;
-    const scripts = (JSON.parse(fs.readFileSync(pkg, "utf8")).scripts || {}) as Record<string, string>;
-    for (const n of ["dev", "start", "serve", "dev:server", "server", "start:dev"]) if (scripts[n]) return `npm run ${n} --silent`;
-    return null;
-  } catch { return null; }
-}
-
-/** OS 가 배정하는 빈 포트 하나. */
-function findFreePort(): Promise<number> {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once("error", () => resolve(3000 + Math.floor(Math.random() * 2000)));
-    srv.listen(0, () => { const p = (srv.address() as net.AddressInfo).port; srv.close(() => resolve(p)); });
-  });
-}
-
-/** 해당 포트로 HTTP GET 이 어떤 응답이든 받으면 서버가 살아있다고 본다. */
-function httpPing(port: number, timeoutMs = 1500): Promise<boolean> {
-  const pingHost = (host: string) => new Promise<boolean>((resolve) => {
-    const req = http.get({ host, port, path: "/", timeout: timeoutMs }, (res) => { res.destroy(); resolve(true); });
-    req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); });
-  });
-  return pingHost("localhost").then((ok) => ok ? true : pingHost("127.0.0.1"));
-}
-
-function cleanTerminalOutput(text: string): string {
-  return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
-}
-
-/** 실행 중 API 응답이 완료 조건을 만족하는지 판정한다. */
-export function validateApiResponse(pathname: string, status: number, body: string, required = false): string | null {
-  if (required && (status < 200 || status >= 300)) return `GET ${pathname} → HTTP ${status} (필수 헬스 엔드포인트)`;
-  if (!required && status === 404) return null;
-  if (!body.trim()) return `GET ${pathname} → 빈 응답 본문`;
-  try { JSON.parse(body); }
-  catch { return `GET ${pathname} → JSON 파싱 불가 (HTML/텍스트 반환): ${body.slice(0, 120)}`; }
-  return null;
-}
-
-/** 화면에 보이는 가짜/미연결 동작을 정적으로 탐지한다. */
-export function auditUiSource(source: string, filename = "UI"): string[] {
-  const issues: string[] = [];
-  for (const match of source.matchAll(/<a\b([^>]*)>/g)) {
-    const attrs = match[1];
-    if (!/\b(?:href|onClick)\s*=/.test(attrs)) issues.push(`${filename}: 이동 기능이 없는 메뉴/링크가 있습니다.`);
-    if (/\bhref\s*=\s*["']#(?:["']|\s)/.test(attrs)) issues.push(`${filename}: 임시 주소(#)만 연결된 링크가 있습니다.`);
-  }
-  if (/onClick\s*=\s*\{\s*\(?(?:\w+)?\)?\s*=>\s*\{\s*\}\s*\}/.test(source)) {
-    issues.push(`${filename}: 눌러도 아무 동작을 하지 않는 버튼이 있습니다.`);
-  }
-  if (/\btrend\s*=\s*["'][+−-]?\d+(?:\.\d+)?%["']/.test(source)) {
-    issues.push(`${filename}: 실제 데이터와 연결되지 않은 고정 증감률이 표시됩니다.`);
-  }
-  if (/\b(?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),\s+(?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{1,2},\s+20\d{2}\b/i.test(source)) {
-    issues.push(`${filename}: 오늘 날짜가 실제 시간이 아닌 고정 문구로 표시됩니다.`);
-  }
-  return [...new Set(issues)];
-}
-
-function sourceFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
-  const out: string[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (["node_modules", "dist", "build", ".next", ".git"].includes(entry.name)) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...sourceFiles(full));
-    else if (/\.(?:tsx|jsx|vue|svelte)$/.test(entry.name) && !/\.test\./.test(entry.name)) out.push(full);
-  }
-  return out;
-}
-
-function codeFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
-  const out: string[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (["node_modules", "dist", "build", ".next", ".git"].includes(entry.name)) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...codeFiles(full));
-    else if (/\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(entry.name) && !/\.test\./.test(entry.name)) out.push(full);
-  }
-  return out;
-}
-
-/** 화면의 API 요청 방식과 서버 라우트(GET/POST/PUT/DELETE)가 일치하는지 대조한다. */
-export function auditApiContracts(cwd: string): string[] {
-  const issues: string[] = [];
-  const serverRoots = [path.join(cwd, "server"), path.join(cwd, "src", "server")];
-  const serverRoutes = new Map<string, Set<string>>();
-  for (const file of serverRoots.flatMap(codeFiles)) {
-    const source = fs.readFileSync(file, "utf8");
-    for (const match of source.matchAll(/\b(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*['"](\/api\/[^'"]+)['"]/gi)) {
-      const method = match[1].toUpperCase();
-      const endpoint = match[2];
-      const methods = serverRoutes.get(endpoint) ?? new Set<string>();
-      methods.add(method);
-      serverRoutes.set(endpoint, methods);
-    }
-  }
-  for (const file of codeFiles(path.join(cwd, "src")).filter((name) => !/[\\/]server[\\/]/.test(name))) {
-    const source = fs.readFileSync(file, "utf8");
-    for (const match of source.matchAll(/\b(?:fetch|api)\s*\(\s*(['"])(\/api\/[^'"]+)\1\s*(?:,\s*\{([^}]{0,600})\})?/g)) {
-      const endpoint = match[2];
-      const options = match[3] ?? "";
-      const method = options.match(/\bmethod\s*:\s*['"](GET|POST|PUT|PATCH|DELETE)['"]/i)?.[1]?.toUpperCase() ?? "GET";
-      const allowed = serverRoutes.get(endpoint);
-      if (allowed && !allowed.has(method)) {
-        issues.push(`${path.relative(cwd, file)}: ${endpoint} 요청이 ${method}로 되어 있지만 서버는 ${[...allowed].join("/")}만 허용합니다.`);
-      }
-    }
-  }
-  return [...new Set(issues)];
-}
-
-/** 보이는 기능과 실제 구현/완성 주장이 일치하는지 검사한다. */
-export function auditAppCompleteness(cwd: string): string[] {
-  const issues = sourceFiles(path.join(cwd, "src")).flatMap((file) =>
-    auditUiSource(fs.readFileSync(file, "utf8"), path.relative(cwd, file)),
-  );
-  issues.push(...auditApiContracts(cwd));
-  const readmePath = path.join(cwd, "README.md");
-  const readme = fs.existsSync(readmePath) ? fs.readFileSync(readmePath, "utf8") : "";
-  if (/\bCRUD\b/i.test(readme)) {
-    const serverDirs = [path.join(cwd, "server"), path.join(cwd, "src", "server")];
-    const serverText = serverDirs.flatMap((dir) => {
-      if (!fs.existsSync(dir)) return [];
-      return fs.readdirSync(dir).filter((name) => /\.(?:ts|js)$/.test(name)).map((name) => fs.readFileSync(path.join(dir, name), "utf8"));
-    }).join("\n");
-    if (!/\.\s*(?:put|patch)\s*\(/i.test(serverText) || !/\.\s*delete\s*\(/i.test(serverText)) {
-      issues.push("README에는 CRUD 완성이라고 되어 있지만 수정 또는 삭제 기능이 구현되지 않았습니다.");
-    }
-  }
-  if (/\.env\.example/.test(readme) && !fs.existsSync(path.join(cwd, ".env.example"))) {
-    issues.push("실행 안내에 .env.example이 필요하다고 되어 있지만 파일이 없습니다.");
-  }
-  const packagePath = path.join(cwd, "package.json");
-  if (fs.existsSync(packagePath)) {
-    try {
-      const scripts = (JSON.parse(fs.readFileSync(packagePath, "utf8")).scripts || {}) as Record<string, string>;
-      const startTarget = scripts.start?.match(/^node\s+([^\s]+)/)?.[1];
-      if (startTarget && !fs.existsSync(path.resolve(cwd, startTarget))) {
-        issues.push(`서비스 실행 명령이 존재하지 않는 파일(${startTarget})을 가리킵니다.`);
-      }
-    } catch { /* package.json 파싱 오류는 빌드 검증에서 처리 */ }
-  }
-  return [...new Set(issues)];
-}
-
-/** 앱을 실제로 띄워 응답하는지 확인(스모크). 시작 명령이 없으면 완료 조건 실패. */
-export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok: boolean; skipped?: boolean; detail: string; startCmd: string }> {
-  const startCmd = detectStartCommand(cwd);
-  if (!startCmd) return { ok: false, detail: "package.json에 dev/start/serve 서버 실행 스크립트가 없습니다.", startCmd: "" };
-  const port = await findFreePort();
-  const expectsFrontend = fs.existsSync(path.join(cwd, "vite.config.ts")) || fs.existsSync(path.join(cwd, "vite.config.js"));
-  const logs: string[] = [];
-  const collect = (b: Buffer) => { logs.push(b.toString()); while (logs.join("").length > 20000) logs.shift(); };
-  const child = spawn(startCmd, { cwd, shell: true, detached: true, env: { ...process.env, PORT: String(port), NODE_ENV: "development", BROWSER: "none" } });
-  child.stdout?.on("data", collect);
-  child.stderr?.on("data", collect);
-  let exited: number | null = null;
-  child.on("exit", (code) => { exited = code ?? 0; });
-
-  const kill = () => {
-    try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* 그룹 없음 */ }
-    try { if (child.pid) process.kill(child.pid, "SIGTERM"); } catch { /* 이미 종료 */ }
-    const t = setTimeout(() => { try { if (child.pid) process.kill(-child.pid, "SIGKILL"); } catch { /* noop */ } }, 2000);
-    (t as unknown as { unref?: () => void }).unref?.();
-  };
-  // 이 프로세스 스스로 죽어도 서버 좀비를 남기지 않도록.
-  const onExit = () => kill();
-  process.once("exit", onExit);
-
-  const candidates = (): number[] => {
-    const set = new Set<number>([port]);
-    const text = cleanTerminalOutput(logs.join(""));
-    for (const m of text.matchAll(/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)?:(\d{2,5})\b/g)) set.add(+m[1]);
-    for (const m of text.matchAll(/port[\s:=]+(\d{2,5})/gi)) set.add(+m[1]);
-    return [...set].filter((p) => p > 0 && p < 65536);
-  };
-
-  const deadline = Date.now() + 35000; // 서버 기동(특히 Next dev)까지 넉넉히
-  let up = false;
-  let upPort = 0;
-  let frontendPort = 0;
-  while (Date.now() < deadline) {
-    if (signal?.aborted) break;
-    if (exited !== null && exited !== 0) break; // 크래시로 종료
-    const ports = candidates();
-    const states = await Promise.all(ports.map(async (port) => ({ port, live: await httpPing(port) })));
-    const firstLive = states.find(({ live }) => live);
-    const cleanLogs = cleanTerminalOutput(logs.join(""));
-    const loggedFrontend = +(cleanLogs.match(/Local:\s+https?:\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/i)?.[1] || 0);
-    if (loggedFrontend && states.some((state) => state.port === loggedFrontend && state.live)) frontendPort = loggedFrontend;
-    if (firstLive && (!expectsFrontend || frontendPort)) { up = true; upPort = port; }
-    if (up) break;
-    await new Promise((r) => setTimeout(r, 700));
-  }
-
-  if (!up) {
-    process.removeListener("exit", onExit);
-    kill();
-    const tail = logs.join("").slice(-4000).trim();
-    const reason = exited !== null && exited !== 0 ? `서버가 시작 직후 종료됨(exit ${exited})` : expectsFrontend && !frontendPort ? "API 또는 프론트 화면이 함께 열리지 않음" : "제한 시간 내 HTTP 응답 없음(서버가 기동/바인딩 실패했거나 PORT 를 안 씀)";
-    return { ok: false, detail: `[스모크 실패: ${reason}] 시작 명령: ${startCmd}\n서버는 반드시 process.env.PORT 를 사용해 바인딩해야 합니다.\n${tail || "(출력 없음)"}`, startCmd };
-  }
-
-  // ── API 응답 검증: 핵심 엔드포인트가 빈 바디/HTML 오류를 반환하지 않는지 확인 ──
-  // "Unexpected end of JSON input" 류 오류는 서버가 빈 응답·HTML·500을 내려줄 때 발생한다.
-  const apiChecks: Array<{ path: string; method: string; required?: boolean }> = [
-    { path: "/api/health", method: "GET", required: true },
-  ];
-  const apiIssues: string[] = [];
-  for (const check of apiChecks) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${upPort}${check.path}`, {
-        method: check.method,
-        headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(3000),
-      });
-      const text = await res.text();
-      const issue = validateApiResponse(check.path, res.status, text, check.required);
-      if (issue) apiIssues.push(issue);
-    } catch (err) {
-      if (check.required) apiIssues.push(`${check.method} ${check.path} → 요청 실패: ${(err as Error).message}`);
-    }
-  }
-
-  process.removeListener("exit", onExit);
-  kill();
-  if (apiIssues.length > 0) {
-    return {
-      ok: false,
-      detail: `[API 검증 실패] 서버는 기동됐지만 실제 실행 검증을 통과하지 못했습니다:\n${apiIssues.map(i => "  - " + i).join("\n")}\n\n해결 방법:\n  1. GET /api/health 를 추가하고 2xx JSON을 반환하세요.\n  2. 모든 API 엔드포인트는 오류 상황에서도 JSON을 반환하세요.\n  3. Express 전역 오류 핸들러를 추가하세요: app.use((err,req,res,next)=>res.status(500).json({message:err.message}))`,
-      startCmd,
-    };
-  }
-
-  return { ok: true, detail: `서비스 화면 및 데이터 연결 확인 완료 (화면 ${frontendPort || upPort}, 데이터 ${upPort})`, startCmd };
-}
 
 export interface ToolCallRequest {
   id: string;
@@ -502,33 +50,14 @@ export class ConversationManager {
   private selectedStack = ""; // 선택된 기술 스택
   private pendingDeployChoice = false; // 앱 빌드 시 배포 옵션 선택 대기
   private selectedDeployTarget = ""; // 선택된 배포 플랫폼
-  private pendingPresentationTemplate = false;
-  private presentationTemplatePath = "";
-  private presentationOutputPath = "";
-  private presentationSourceTexts: string[] = [];
-
-  constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string, pptTemplateOverride = "") {
+  constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string) {
     this.config = config;
     this.permissions = permissions;
     this.cwd = cwd;
-    const configuredTemplate = pptTemplateOverride || config.pptTemplatePath || "";
-    this.presentationTemplatePath = configuredTemplate ? path.resolve(cwd, configuredTemplate) : "";
     this.client = createOpenAIClient(config);
     this.messages.push({
       role: "system",
-      content: `You are BCave, a CLI coding agent. Working directory: ${cwd}. Use tools to interact with the filesystem and shell. Respond in the user's language.
-
-ARTIFACT vs APP: Real service/app (backend+API+DB+auth) → multi-file project. Standalone dashboard/report/landing → single self-contained HTML. Never fake data with static arrays.
-DB RULES: (1) SQLite: use better-sqlite3 DIRECTLY (not Prisma) — Prisma 7 removed native SQLite, the adapter(@prisma/adapter-better-sqlite3) is complex and error-prone. (2) PostgreSQL: use Prisma with provider="postgresql" OR pg package directly. NEVER mix SQLite adapter with Prisma 7. (3) Non-local deployments (Railway/Vercel/Fly/AWS): ALWAYS PostgreSQL — no SQLite regardless of environment. Get dev DATABASE_URL from Neon/Supabase free tier. (4) Vite+Express: ALWAYS add proxy in vite.config.ts: server:{proxy:{'/api':{target:'http://localhost:PORT',changeOrigin:true}}} — without this all fetch('/api') calls go to Vite port instead of backend.
-API CONTRACT (prevents "Unexpected end of JSON input"): (1) Every API endpoint MUST always return JSON — use res.json() even for errors, NEVER res.end() or res.send() with empty body except 204. (2) Add a global error handler: app.use((err,req,res,next)=>{res.status(err.status||500).json({message:err.message||'서버 오류'})}). (3) Frontend fetch MUST check response.ok before .json(): const r=await fetch(url,opts); if(!r.ok){const e=await r.json().catch(()=>({message:'서버 오류'})); throw new Error(e.message);} return r.json(). (4) Wrap every fetch call in try/catch and show the error message to the user (never swallow errors silently).
-REQUEST METHOD CONTRACT: Every frontend request method must exactly match its backend route. Calls without an explicit method are GET. Login/create/logout/action endpoints commonly require POST; update requires PUT/PATCH; delete requires DELETE. Before completion, compare every fetch/API wrapper call against the registered backend route method and repair every mismatch.
-COMPLETENESS: Every visible button, menu, tab, link, dropdown, search/filter, form, and table row action MUST work. Do not render future/placeholder navigation as interactive controls. Never show fabricated dates, percentages, trends, counts, statuses, or "auto saved" labels; derive them from real data/state. Do not claim CRUD unless create/read/update/delete all exist in both UI and API. Before completion, inventory every visible interactive element and exercise its connected path.
-UI: Follow existing stack. No stack → Tailwind CSS + shadcn/ui default. No arbitrary hex/inline styles.
-UI QUALITY: (1) contrast≥4.5:1, alt text, keyboard nav, aria-labels, no remove focus rings (2) tap≥44×44px, loading feedback, no hover-only (3) SVG icons, Tailwind tokens (4) mobile-first, viewport meta, no horizontal scroll (5) body≥16px/1.5lh, no gray-on-gray (6) animation 150-300ms, prefers-reduced-motion (7) visible labels, inline errors, disable submit on load (8) predictable back, bottom-nav≤5.
-WIRING: new page→add route+nav link; new API→frontend fetch+error; new component→import+render; schema change→migration. Read router/server after writing to confirm wire.
-HTML ARTIFACTS: (1) single .html, all CSS+JS inline (2) always new filename (3) save in cwd, no subdirectory. (4) After saving, reply with ONLY the saved file path (e.g. "저장됨: /abs/path/dashboard.html") — no server launch, no "실행해드릴까요", no lengthy explanation. The user opens it directly in a browser.
-DATA: Use {{BCAVE_DATA:/path#sheet}} placeholder in <script>window.__DATA=…</script> only—never in visible HTML. Render from __DATA in JS (aggregate, slice top 50). Use {{BCAVE_SHEETS:path}} for multi-sheet. Re-emit placeholder on every edit. Never copy rows or leave empty arrays.
-CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:280px div, maintainAspectRatio:false. Grid align-items:stretch for chart+side-card rows.`,
+      content: buildSystemPrompt(cwd),
     });
   }
 
@@ -738,42 +267,6 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     // 실제 백엔드가 있는 애플리케이션/서비스 요청 → 단일 정적 HTML 플로우가 아니라 진짜 프로젝트로 만든다.
     const appBuild = isAppBuild(userMessage);
-    const presentationIntent = isPresentationRequest(userMessage);
-    const suppliedPptxPaths = pptxPathsFromText(userMessage, this.cwd);
-    const pendingTemplateReply = this.pendingPresentationTemplate && suppliedPptxPaths.some((file) => fs.existsSync(file));
-    if (this.pendingPresentationTemplate && !presentationIntent && !pendingTemplateReply) {
-      this.pendingPresentationTemplate = false;
-    }
-    const presentationRequest = presentationIntent || pendingTemplateReply;
-    if (presentationRequest) {
-      const wasPendingPresentationTemplate = this.pendingPresentationTemplate;
-      if (!wasPendingPresentationTemplate) {
-        this.presentationOutputPath = resolvePresentationOutputPath(userMessage, this.cwd, this.presentationTemplatePath);
-      }
-      const explicitPaths = suppliedPptxPaths.filter((file) => fs.existsSync(file));
-      if (this.pendingPresentationTemplate && explicitPaths.length) {
-        this.presentationTemplatePath = explicitPaths[0];
-        this.pendingPresentationTemplate = false;
-      }
-      if (!this.presentationTemplatePath || !fs.existsSync(this.presentationTemplatePath)) {
-        const sourceDirectories = presentationSourcePathsFromText(userMessage, this.cwd).map((file) => path.dirname(file));
-        this.presentationTemplatePath = explicitPaths.find((file) => /(?:template|템플릿|양식)/i.test(path.basename(file)))
-          || [this.cwd, ...sourceDirectories].map(autoDetectPresentationTemplate).find(Boolean)
-          || "";
-      }
-      if (!this.presentationTemplatePath) {
-        this.pendingPresentationTemplate = true;
-        yield { type: "text", content: "사용할 PowerPoint 템플릿(.pptx) 파일 경로를 입력해 주세요." };
-        return;
-      }
-      if (!wasPendingPresentationTemplate) {
-        this.presentationOutputPath = resolvePresentationOutputPath(userMessage, this.cwd, this.presentationTemplatePath);
-      }
-    }
-    const presentationTemplatePath = this.presentationTemplatePath;
-    const presentationOutputPath = this.presentationOutputPath;
-    const presentationDirectories = [this.cwd, ...(presentationTemplatePath ? [path.dirname(presentationTemplatePath)] : []), ...(presentationOutputPath ? [path.dirname(presentationOutputPath)] : [])];
-    const initialPresentations = new Map<string, number>(presentationFilesIn(presentationDirectories).map((file): [string, number] => [file, fs.statSync(file).mtimeMs]));
     if (appBuild) this.applicationActive = true;
     // 최초 요청에 배포 환경 또는 SQLite가 명시되면 스택 선택 뒤 같은 질문을 반복하지 않는다.
     if (appBuild && !this.selectedDeployTarget) {
@@ -919,22 +412,6 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           "동일 축에는 동일 단위만 사용하고 고객 수 단위는 '명'이다. 주입 데이터의 행은 배열이 아니라 컬럼명 키를 가진 객체이므로 r[0] 같은 숫자 인덱스를 쓰지 않고 r['컬럼명']으로 읽는다. 데이터는 이미 정리되어 있으므로 헤더 제거 목적으로 .slice(1), .slice(3)을 쓰지 않는다. 원본의 모든 시트와 주요 컬럼을 화면 구성 전에 목록화하고, 사용하지 않는 데이터가 있다면 의도적으로 제외한 이유를 설명할 수 있어야 한다. 완료 전 write_file 결과가 반드시 검토 통과여야 하며 실패/경고를 성공으로 간주하지 않는다. 완료 응답은 파일명과 검증 통과만 간결히 쓴다.",
       );
     }
-    if (presentationRequest) {
-      this.replaceSystemContext("[PRESENTATION_CONTEXT]",
-        "[PRESENTATION_CONTEXT]\n이 요청의 산출물은 PowerPoint 프레젠테이션(.pptx)이다. HTML, 대시보드, 웹페이지를 만들지 않는다. " +
-        `첨부/지정 문서의 내용을 요약·구조화하고 세션 템플릿 \`${presentationTemplatePath}\`를 편집 원본으로 사용한다. ` +
-        `최종 출력 경로는 반드시 \`${presentationOutputPath}\` 하나다. _v2, _final, _verified 같은 별도 PPTX를 만들지 말고 수정할 때도 이 파일 하나만 원본 템플릿에서 다시 생성해 교체한다. 다른 .pptx 중간 산출물은 만들지 않는다. ` +
-        `원본의 ${pptxSlideCount(presentationTemplatePath)}장은 선택 가능한 레이아웃 라이브러리다. 모든 원본 슬라이드를 먼저 살펴보고 완성본의 각 페이지에 가장 적합한 원본 페이지를 복제한다. 같은 페이지를 여러 번 복제할 수 있고 페이지 수는 내용에 맞게 정한다. ` +
-        "허용 조작은 다음뿐이다: 템플릿 복사본에서 시작하고, 미사용 슬라이드는 ppt/presentation.xml의 <p:sldIdLst>에서 제거하며, 필요한 슬라이드는 기존 슬라이드 XML과 관계 파일을 복제하고 관계를 등록한다. 텍스트는 기존 <a:t> 런의 내용만 교체한다. 표는 기존 <a:tbl> 셀의 <a:t>만 교체하고 행이 부족할 때만 기존 <a:tr>을 복제한다. 마지막에는 새 ZIP 패키지로 재저장한다. " +
-        "금지 조작: 새 <p:sp> 도형·텍스트박스 추가, add_textbox/add_shape, text_frame.clear, 기존 안내문구 위 덧대기, 원본 전체를 완성본 앞에 남긴 뒤 새 페이지 붙이기, 이전 산출물 재활용. 빈 레이아웃이나 독자적인 디자인을 새로 만들지 않으며 모든 완성 페이지는 현재 세션 템플릿의 실제 페이지 복제본이어야 한다. " +
-        "도형 역할은 이름만 믿지 말고 좌표·폰트 크기·슬라이드 내 위치로 판별한다. 원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소와 도형 위치를 유지한다. 텍스트가 맞지 않을 때는 먼저 문장을 줄이거나 다른 템플릿 페이지로 나누고, 꼭 필요한 경우에만 기존 텍스트박스의 폭·높이를 조정한다. 새 도형을 추가하지 않는다. " +
-        "표 행이 부족하면 첫 데이터 <a:tr>을 deepcopy하고 콘텐츠 양에 맞춰 데이터 행 높이를 함께 재계산한다. 열 수를 줄일 때 gridCol을 삭제하지 말고 기존 셀의 gridSpan/hMerge로 병합하며, hMerge 연속 셀은 의도적인 빈 셀이다. 빈 셀에 런이 없으면 endParaRPr 서식을 복제해 <a:r>을 만든다. " +
-        "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
-        "presentation.xml의 <p:sldIdLst> 자체를 비우거나 <p:sldIdLst/>로 저장하지 않는다. 최종 슬라이드마다 presentation.xml의 <p:sldId>와 presentation.xml.rels의 slide 관계가 함께 존재해야 하며, 패키징 후 등록 슬라이드 수를 직접 확인한다. " +
-        "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
-        "필요하면 생성 스크립트(.js/.mjs 또는 Python 3+lxml)를 운영체제 임시 폴더에 작성한다. python-pptx와 xml.etree는 사용하지 않는다. Python은 반드시 python3로 실행하고 첫 줄에 UTF-8 인코딩을 선언한다. 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
-        "원문에 없는 사실을 채우지 않는다. 완료 전 모든 결과 페이지가 세션 템플릿의 복제본인지, 이미지 관계가 유효한지, 템플릿 원문이 편집되지 않은 채 남지 않았는지, 표가 채워졌는지, 목차와 본문이 일치하는지, 읽은 원본 자료의 수치가 반영됐는지 검사한다.");
-    }
     if (appBuild || this.applicationActive) {
       const deployTarget = this.selectedDeployTarget || "local";
       const deployGuide = ConversationManager.deployStackGuide(deployTarget);
@@ -999,7 +476,6 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     let runtimeStartUrl = "";
     let runtimeStartFailure = "";
     let runtimeRepairRounds = 0;
-    let presentationRepairRounds = 0;
 
     try {
       while (true) {
@@ -1024,57 +500,15 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           hasNoToolCalls;
         const modelIsTryingToReportRuntime = executionRequested &&
           hasNoToolCalls;
-        const modelIsTryingToFinishPresentation = presentationRequest && hasNoToolCalls;
         const modelIsTryingToFinishUnverifiedCode = codeTouched && hasNoToolCalls &&
           (verifyCmds.length > 0 || (this.applicationActive && this.config.autoVerify));
-        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact && !modelIsTryingToReportRuntime && !modelIsTryingToFinishPresentation && !modelIsTryingToFinishUnverifiedCode) {
+        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact && !modelIsTryingToReportRuntime && !modelIsTryingToFinishUnverifiedCode) {
           lastText = text;
           currentTextYielded = true;
           yield { type: "text", content: message.content as string };
         }
 
         if (!message.tool_calls || message.tool_calls.length === 0) {
-          if (presentationRequest && !signal?.aborted) {
-            const changedPresentations = (() => {
-              try {
-                return presentationFilesIn(presentationDirectories).filter((file) => file !== presentationTemplatePath && (!initialPresentations.has(file) || fs.statSync(file).mtimeMs > (initialPresentations.get(file) ?? 0))).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).filter((file) => {
-                  const bytes = fs.readFileSync(file);
-                  return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
-                });
-              } catch { return []; }
-            })();
-            const createdPath = changedPresentations.find((file) => path.resolve(file) === path.resolve(presentationOutputPath)) ?? "";
-            const extraPresentations = changedPresentations.filter((file) => path.resolve(file) !== path.resolve(presentationOutputPath));
-            const outputSlides = createdPath ? pptxSlideCount(createdPath) : 0;
-            const packageIssues = createdPath ? pptxPackageIssues(createdPath) : [];
-            const fidelityIssues = createdPath && !packageIssues.length ? pptxTemplateFidelityIssues(presentationTemplatePath, createdPath) : [];
-            const gateIssues = createdPath && !packageIssues.length ? validatePresentationGate(presentationTemplatePath, createdPath, this.presentationSourceTexts) : [];
-            const invalidReason = extraPresentations.length
-              ? `최종 PPTX는 '${presentationOutputPath}' 하나만 허용됩니다. 세션 중 별도로 생성된 파일을 제거하고 지정 파일 하나만 다시 저장하세요: ${extraPresentations.map((file) => path.basename(file)).join(", ")}`
-              : !createdPath
-              ? `지정된 최종 PPTX가 생성되지 않았습니다: ${presentationOutputPath}`
-              : packageIssues.length
-                ? packageIssues.join(" ")
-                : outputSlides < 1
-                  ? "presentation.xml의 <p:sldIdLst>에 등록된 완성 슬라이드가 0장입니다. 슬라이드 XML만 남기지 말고 <p:sldId>와 presentation.xml.rels 관계를 복구하세요."
-                : fidelityIssues.length
-                  ? fidelityIssues.join(" ")
-                : gateIssues.length
-                  ? gateIssues.join(" ")
-                  : "";
-            if (invalidReason) {
-              const maxPresentationRepairRounds = Math.max(4, this.config.maxVerifyRounds ?? 2);
-              if (presentationRepairRounds >= maxPresentationRepairRounds) {
-                yield { type: "error", message: `PowerPoint 템플릿 적용을 확인하지 못해 완료 처리하지 않았습니다.\n${invalidReason}` };
-                return;
-              }
-              presentationRepairRounds++;
-              this.messages.push({ role: "assistant", content: message.content ?? "" });
-              this.messages.push({ role: "user", content: `[PPT 검증 게이트 0 실패] ${invalidReason}\n현재 세션 템플릿의 적합한 페이지를 복제하고 상속된 요소의 내용만 수정하세요. 오류 메시지에 지정된 슬라이드·텍스트·셀을 모두 고친 뒤 PPTX를 다시 저장하고 검증하세요.` });
-              lastText = "";
-              continue;
-            }
-          }
           // 실행 요청은 shell_exec가 실제 HTTP 응답을 확인한 경우에만 완료할 수 있다.
           if (executionRequested && !runtimeStartVerified && !signal?.aborted) {
             if (runtimeRepairRounds >= this.config.maxVerifyRounds) {
@@ -1325,41 +759,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             this.permissions.approve(category);
           }
 
-          const presentationCode = presentationRequest
-            ? String(name === "shell_exec" ? args.command ?? "" : name === "write_file" ? args.content ?? "" : "")
-            : "";
-          const presentationUsesPythonPptx = presentationRequest && /(?:from\s+pptx\s+import|import\s+pptx\b)/i.test(presentationCode);
-          const presentationUsesMissingPython = presentationRequest && name === "shell_exec" && /(?:^|[;&|()]\s*)python\s+(?:-|[^3])/i.test(presentationCode);
-          const mentionedPptxPaths = presentationRequest ? pptxPathsFromText(presentationCode, this.cwd) : [];
-          const unexpectedPptxPaths = mentionedPptxPaths.filter((file) => path.resolve(file) !== path.resolve(presentationTemplatePath) && path.resolve(file) !== path.resolve(presentationOutputPath));
-          const presentationScriptAddsBlankSlides = presentationRequest &&
-            /(?:slides\s*\.\s*add_slide|slides\s*\.\s*add\s*\()/i.test(presentationCode) &&
-            !/(?:deepcopy|copy\.deepcopy|duplicate[_A-Za-z]*slide|clone[_A-Za-z]*slide)/i.test(presentationCode);
-          const presentationRebuildsTemplate = presentationRequest && /(?:add_textbox|add_shape|\.text\s*=\s*['"]{2}|text_frame\s*\.\s*clear\s*\()/i.test(presentationCode);
-          const presentationOutputDir = presentationTemplatePath ? path.dirname(presentationTemplatePath) : this.cwd;
-          const presentationLeaksIntermediates = presentationRequest && (
-            (name === "shell_exec" && new RegExp(`${presentationOutputDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/[^\\s'\"]+\\.(?:py|js|mjs|json|png|log)(?=\\s|['\"]|$)`, "im").test(presentationCode)) ||
-            (name === "write_file" && typeof args.path === "string" && /\.(?:py|js|mjs|json|png|log)$/i.test(args.path) && !path.resolve(this.cwd, args.path).startsWith("/tmp/"))
-          );
-          const result = presentationRequest && name === "write_file" && typeof args.path === "string" && /\.html?$/i.test(args.path)
-            ? "[차단됨] PowerPoint 요청에는 HTML/대시보드를 만들 수 없습니다. 현재 세션의 PPTX 템플릿으로 실제 .pptx를 생성하세요."
-            : presentationUsesPythonPptx
-              ? "[차단됨] python-pptx로 PPT를 생성·수정할 수 없습니다. 템플릿 PPTX 복사본을 unzip한 뒤 기존 슬라이드 XML/관계를 복제하고 <a:t>만 교체하세요."
-            : presentationUsesMissingPython
-              ? "[차단됨] 이 환경에는 python 명령이 없습니다. PPT 작업은 Python 대신 Node.js와 zip/unzip을 사용하세요."
-            : unexpectedPptxPaths.length
-              ? `[차단됨] PPTX는 지정된 최종 파일 '${presentationOutputPath}' 하나만 만들 수 있습니다. 다른 출력명은 사용할 수 없습니다: ${unexpectedPptxPaths.map((file) => path.basename(file)).join(", ")}`
-            : presentationLeaksIntermediates
-              ? "[차단됨] 최종 PPTX 외 작업 스크립트·중간 파일을 Desktop에 만들 수 없습니다. 모든 중간 산출물은 /tmp 아래 작업 폴더에 만들고 최종 .pptx 하나만 지정 위치에 저장하세요."
-            : presentationRebuildsTemplate
-              ? "[차단됨] 복제한 템플릿의 기존 요소를 지우고 새 텍스트 박스/도형으로 다시 그릴 수 없습니다. 현재 템플릿의 적합한 페이지를 복제하고 상속된 요소의 텍스트만 수정하세요."
-            : presentationScriptAddsBlankSlides
-              ? "[차단됨] 빈 레이아웃으로 새 슬라이드를 만드는 코드는 사용할 수 없습니다. 새 페이지가 필요하면 현재 세션 템플릿의 적합한 페이지를 복제하세요."
-            : await executeTool(name, args, this.cwd);
-          if (presentationRequest && name === "read_file" && typeof args.path === "string" && /\.(?:md|txt|csv|tsv|xlsx|xls|json)$/i.test(args.path) && !result.startsWith("Error")) {
-            this.presentationSourceTexts.push(result);
-            if (this.presentationSourceTexts.length > 12) this.presentationSourceTexts.shift();
-          }
+          const result = await executeTool(name, args, this.cwd);
           if (name === "shell_exec" && isDevServerCommand(String(args.command ?? ""))) {
             runtimeStartAttempted = true;
             if (result.startsWith("[SERVER_STARTED]")) {

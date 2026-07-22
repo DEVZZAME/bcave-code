@@ -1,89 +1,146 @@
-# ============================================================
-#  BCave CLI 설치 스크립트 (Windows — PowerShell / cmd)
-#  실행: PowerShell 에서
-#    irm https://raw.githubusercontent.com/DEVZZAME/bcave-agent/master/install.ps1 | iex
-#  설치 후 cmd·PowerShell 어디서나 `bcave` 로 실행됩니다.
-# ============================================================
+$ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "  ╔══════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "  ║        BCave CLI 설치 (Windows)       ║" -ForegroundColor Cyan
-Write-Host "  ╚══════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "  B.CAVE CODE" -ForegroundColor Cyan
+Write-Host "  ----------------------------" -ForegroundColor Cyan
+Write-Host "  사내 AI 코딩 에이전트 - 안전 설치"
 Write-Host ""
-
-# --- 이 세션(프로세스)에 한해 스크립트 실행 허용 (실패해도 무시) ---
-#   기업 GPO 로 정책이 잠긴 경우엔 아래 npm.cmd 호출이 정책을 우회한다.
-try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop } catch {}
-
-# --- Node.js 확인 ---
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  Write-Host "  X Node.js 가 설치되어 있지 않습니다." -ForegroundColor Red
-  Write-Host "    https://nodejs.org 에서 LTS 버전 설치 후 다시 실행하세요."
-  return
-}
-$nodeMajor = ((node -v) -replace 'v','').Split('.')[0] -as [int]
-if ($nodeMajor -lt 18) {
-  Write-Host ("  X Node.js 18 이상이 필요합니다 (현재: " + (node -v) + ")") -ForegroundColor Red
-  return
-}
-Write-Host ("  OK  Node.js " + (node -v)) -ForegroundColor Green
-
-# --- Git 확인 ---
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-  Write-Host "  X Git 이 설치되어 있지 않습니다." -ForegroundColor Red
-  Write-Host "    https://git-scm.com/download/win 에서 설치 후 다시 실행하세요."
-  return
-}
 
 $InstallDir = Join-Path $env:USERPROFILE ".bcave-cli"
-$BinDir     = Join-Path $env:USERPROFILE ".bcave\bin"
+$BinDir = Join-Path $env:USERPROFILE ".bcave\bin"
+$LockDir = Join-Path $env:USERPROFILE ".bcave-cli.install.lock"
+$TempDir = Join-Path $env:USERPROFILE (".bcave-cli.tmp." + [Guid]::NewGuid().ToString("N"))
+$BackupDir = Join-Path $env:USERPROFILE (".bcave-cli.backup." + [Guid]::NewGuid().ToString("N"))
+$EntryRelative = "dist\cli\index.js"
+$RepoUrl = if ($env:BCAVE_REPO_URL) { $env:BCAVE_REPO_URL } else { "https://github.com/DEVZZAME/bcave-agent.git" }
+$Activated = $false
+$HasBackup = $false
+$Succeeded = $false
+$OwnsLock = $false
 
-# --- 기존 설치 제거 ---
-if (Test-Path $InstallDir) {
-  Write-Host "  기존 설치를 업데이트합니다..."
-  Remove-Item -Recurse -Force $InstallDir
+function Stop-Install([string]$Message) {
+  throw $Message
 }
 
-# --- 클론 ---
-Write-Host "  다운로드 중..."
-git clone --depth 1 --quiet https://github.com/DEVZZAME/bcave-agent.git $InstallDir
-if ($LASTEXITCODE -ne 0) { Write-Host "  X git clone 실패" -ForegroundColor Red; return }
-
-# --- 설치 + 빌드 ---
-Push-Location $InstallDir
 try {
-  # npm(=npm.ps1) 은 PowerShell 실행정책에 막힐 수 있으므로 npm.cmd(배치)를 호출한다.
-  Write-Host "  의존성 설치 중... (수 분 소요될 수 있습니다)"
-  npm.cmd install --silent --no-fund --no-audit
-  if ($LASTEXITCODE -ne 0) { Write-Host "  X npm install 실패" -ForegroundColor Red; return }
-  Write-Host "  빌드 중..."
-  npm.cmd run build
-  if ($LASTEXITCODE -ne 0) { Write-Host "  X 빌드 실패" -ForegroundColor Red; return }
+  if (Test-Path $LockDir) {
+    $PidFile = Join-Path $LockDir "pid"
+    $ExistingPid = if (Test-Path $PidFile) { Get-Content $PidFile -ErrorAction SilentlyContinue } else { $null }
+    $Running = if ($ExistingPid) { Get-Process -Id ([int]$ExistingPid) -ErrorAction SilentlyContinue } else { $null }
+    if ($Running) { Stop-Install "다른 BCave 설치 또는 업데이트가 진행 중입니다. (PID $ExistingPid)" }
+    Remove-Item -Recurse -Force $LockDir
+  }
+  New-Item -ItemType Directory -Path $LockDir -ErrorAction Stop | Out-Null
+  Set-Content -Path (Join-Path $LockDir "pid") -Value $PID -Encoding ASCII
+  $OwnsLock = $true
+
+  foreach ($CommandName in @("node", "npm.cmd", "git")) {
+    if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
+      Stop-Install "$CommandName 명령을 찾을 수 없습니다. Node.js LTS와 Git을 설치한 뒤 새 터미널에서 다시 시도하세요."
+    }
+  }
+
+  $NodeVersion = (& node -p "process.versions.node").Trim()
+  $NodeMajor = [int]$NodeVersion.Split('.')[0]
+  if ($NodeMajor -lt 20) {
+    Stop-Install "Node.js 20 이상이 필요합니다. (현재: v$NodeVersion)"
+  }
+  if ($NodeMajor -notin @(20, 22, 24)) {
+    Write-Host "  ! Node.js v$NodeVersion 는 공식 LTS 검증 범위(20/22/24)가 아닙니다." -ForegroundColor Yellow
+  }
+  Write-Host "  OK Node.js v$NodeVersion" -ForegroundColor Green
+
+  Write-Host "  > 새 버전 다운로드" -ForegroundColor Cyan
+  & git clone --depth 1 --quiet $RepoUrl $TempDir
+  if ($LASTEXITCODE -ne 0) { Stop-Install "git clone 실패 (exit $LASTEXITCODE)" }
+
+  Push-Location $TempDir
+  try {
+    Write-Host "  > 의존성 설치" -ForegroundColor Cyan
+    & npm.cmd ci --silent --no-fund --no-audit
+    if ($LASTEXITCODE -ne 0) { Stop-Install "npm ci 실패 (exit $LASTEXITCODE)" }
+
+    Write-Host "  > 빌드" -ForegroundColor Cyan
+    & npm.cmd run build --silent
+    if ($LASTEXITCODE -ne 0) { Stop-Install "빌드 실패 (exit $LASTEXITCODE)" }
+  } finally {
+    Pop-Location
+  }
+
+  Write-Host "  > 설치본 검증" -ForegroundColor Cyan
+  $TempEntry = Join-Path $TempDir $EntryRelative
+  if (-not (Test-Path $TempEntry -PathType Leaf)) { Stop-Install "빌드 엔트리가 생성되지 않았습니다: $EntryRelative" }
+  if (-not (Test-Path (Join-Path $TempDir "node_modules") -PathType Container)) { Stop-Install "node_modules가 생성되지 않았습니다." }
+  if (-not (Test-Path (Join-Path $TempDir "assets\design-systems") -PathType Container)) { Stop-Install "디자인 시스템 자산이 누락됐습니다." }
+  & node $TempEntry --help *> $null
+  if ($LASTEXITCODE -ne 0) { Stop-Install "빌드된 CLI 실행 검증에 실패했습니다." }
+
+  if (Test-Path $InstallDir) {
+    Write-Host "  > 기존 설치본 보관" -ForegroundColor Cyan
+    Move-Item -Path $InstallDir -Destination $BackupDir
+    $HasBackup = $true
+  }
+
+  Write-Host "  > 새 버전 활성화" -ForegroundColor Cyan
+  Move-Item -Path $TempDir -Destination $InstallDir
+  $Activated = $true
+
+  New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+  $DistEntry = Join-Path $InstallDir $EntryRelative
+  $LauncherTemp = Join-Path $BinDir ("bcave.tmp." + [Guid]::NewGuid().ToString("N") + ".cmd")
+  $Launcher = @"
+@echo off
+set "BCAVE_ENTRY=$DistEntry"
+if not exist "%BCAVE_ENTRY%" (
+  echo BCAVE_ENTRY_MISSING: BCave 설치가 불완전합니다. 1^>^&2
+  echo 복구: PowerShell에서 설치 명령을 다시 실행하세요. 1^>^&2
+  exit /b 1
+)
+node "%BCAVE_ENTRY%" %*
+"@
+  Set-Content -Path $LauncherTemp -Value $Launcher -Encoding ASCII
+  Move-Item -Force -Path $LauncherTemp -Destination (Join-Path $BinDir "bcave.cmd")
+
+  & (Join-Path $BinDir "bcave.cmd") --help *> $null
+  if ($LASTEXITCODE -ne 0) { Stop-Install "최종 런처 검증에 실패했습니다." }
+
+  $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $PathParts = @($UserPath -split ';' | Where-Object { $_ })
+  if ($PathParts -notcontains $BinDir) {
+    [Environment]::SetEnvironmentVariable("Path", (($PathParts + $BinDir) -join ';'), "User")
+  }
+
+  if ($HasBackup -and (Test-Path $BackupDir)) {
+    Remove-Item -Recurse -Force $BackupDir
+    $HasBackup = $false
+  }
+  $Succeeded = $true
+  Write-Host ""
+  Write-Host "  OK BCave CLI 설치 완료!" -ForegroundColor Green
+  Write-Host "  새 cmd 또는 PowerShell에서 bcave를 실행하세요."
+  Write-Host "  문제가 있으면 bcave doctor를 실행하세요."
+  Write-Host ""
+} catch {
+  Write-Host ""
+  Write-Host ("  X 설치 실패: " + $_.Exception.Message) -ForegroundColor Red
+  if ($Activated -and $HasBackup -and (Test-Path $BackupDir)) {
+    if (Test-Path $InstallDir) {
+      $FailedDir = Join-Path $env:USERPROFILE (".bcave-cli.failed." + [Guid]::NewGuid().ToString("N"))
+      Move-Item -Path $InstallDir -Destination $FailedDir -ErrorAction SilentlyContinue
+    }
+    Move-Item -Path $BackupDir -Destination $InstallDir -ErrorAction SilentlyContinue
+    $HasBackup = $false
+    Write-Host "  이전 설치본으로 복구했습니다." -ForegroundColor Yellow
+  } elseif ($Activated -and (Test-Path $InstallDir)) {
+    $FailedDir = Join-Path $env:USERPROFILE (".bcave-cli.failed." + [Guid]::NewGuid().ToString("N"))
+    Move-Item -Path $InstallDir -Destination $FailedDir -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $FailedDir -ErrorAction SilentlyContinue
+  } else {
+    Write-Host "  기존 BCave 설치본은 변경하지 않았습니다." -ForegroundColor Yellow
+  }
 } finally {
-  Pop-Location
+  if (Test-Path $TempDir) { Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue }
+  if ($HasBackup -and $Succeeded -and (Test-Path $BackupDir)) { Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue }
+  if ($OwnsLock -and (Test-Path $LockDir)) { Remove-Item -Recurse -Force $LockDir -ErrorAction SilentlyContinue }
 }
-
-# --- 런처(.cmd) 생성 ---
-# 심볼릭 링크/복사 대신 래퍼(.cmd)가 node 에게 설치 폴더 내부의 실제 경로를 넘긴다.
-# → 의존성 해석이 항상 InstallDir\node_modules 로 향해 안정적으로 동작.
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$distEntry = Join-Path $InstallDir "dist\cli\index.js"
-$cmd = "@echo off`r`nnode `"$distEntry`" %*`r`n"
-Set-Content -Path (Join-Path $BinDir "bcave.cmd") -Value $cmd -Encoding ASCII
-
-# --- 사용자 PATH 에 등록 (setx 미사용 — PATH 잘림 방지) ---
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if (-not $userPath) { $userPath = "" }
-if ($userPath -notlike "*$BinDir*") {
-  $newPath = ($userPath.TrimEnd(';') + ";" + $BinDir).TrimStart(';')
-  [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-  Write-Host ("  PATH 등록: " + $BinDir) -ForegroundColor Green
-}
-
-Write-Host ""
-Write-Host "  OK  BCave CLI 설치 완료!" -ForegroundColor Green
-Write-Host ""
-Write-Host "  다음 단계:"
-Write-Host "    1. 터미널(cmd 또는 PowerShell)을 '새로' 열어주세요. (PATH 적용)"
-Write-Host "    2. 실행:  bcave"
-Write-Host ""
+if (-not $Succeeded) { throw "BCave installation failed" }

@@ -1,24 +1,39 @@
 #!/usr/bin/env node
 import chalk from "chalk";
 import readline from "node:readline";
-import { loadConfig, saveConfig, getConfigDir, isLoggedIn } from "../config/config.js";
+import { loadConfig, saveConfig, isLoggedIn } from "../config/config.js";
 import { ConversationManager, type AgentEvent, type ToolCallRequest } from "../agent/conversation.js";
 import { PermissionManager, type PermissionMode } from "../agent/permissions.js";
 import type { BcaveConfig } from "../config/config.js";
-import { hubLogin, hubLogout, hubListModels, hubUsage, type HubModel } from "../auth/hub.js";
-import { newSessionId, saveSession, listSessions, loadSession } from "../session/store.js";
+import { hubUsage } from "../auth/hub.js";
+import { listSessions, loadSession } from "../session/store.js";
 import fs from "node:fs";
 import os from "node:os";
-import { execSync, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import nodePath from "node:path";
 import { detectDesignSystemFromArtifact, designSystemNames, hasDesignSystem, lintDesignArtifact } from "../design-system/runtime.js";
+import { collectDoctorChecks, doctorExitCode } from "./doctor.js";
+import { hasRemoteUpdate, relaunchUpdatedCli, resolveInstallDir, runSafeUpdate } from "./updater.js";
+import { friendlyErrorMessage, friendlyVerifyLabel, formatDuration as fmtDuration, readlineAnsi as rlWrap, shortenPath, toolResultLine, toolStatus } from "./rendering.js";
+import { homeRelativePath as homeShort, messageText as msgText, relativeTime as relTime } from "./session-format.js";
+import { askHidden, askVisible, type AuthInputOptions } from "./auth-input.js";
+import { parseSlashCommand } from "./slash-command.js";
+import { authenticate, endSession } from "./auth-service.js";
+import { settingsAction } from "./settings-command.js";
+import { SessionController } from "./session-controller.js";
+import { resetConfig } from "./reset-service.js";
+import { deployChoices } from "./deploy-catalog.js";
+import { availableModels } from "./model-service.js";
+import { usageRows } from "./usage-format.js";
+import { showTerminalSelector, type SelectorItem } from "./terminal-selector.js";
+import { createBracketedPasteWriter, globalKeyAction } from "./terminal-input.js";
+import { WorkSession } from "./work-session.js";
+import { CLI_COMMANDS } from "./commands.js";
+import { BCAVE_VERSION } from "../version.js";
 
 // ─── CLI Args ──────────────────────────────────────────
 const args = process.argv.slice(2);
 let mode: PermissionMode = "auto-approve"; // 기본: Auto mode (카테고리별 자동 승인)
 let initialPrompt: string | undefined;
-let pptTemplateOverride: string | undefined;
 
 const modelIdx = args.indexOf("--model");
 let modelOverride: string | undefined;
@@ -29,11 +44,6 @@ if (modelIdx !== -1 && args[modelIdx + 1]) {
 const hubIdx = args.indexOf("--hub-url");
 if (hubIdx !== -1 && args[hubIdx + 1]) {
   saveConfig({ hubUrl: args[hubIdx + 1] });
-}
-
-const pptTemplateIdx = args.indexOf("--ppt-template");
-if (pptTemplateIdx !== -1 && args[pptTemplateIdx + 1]) {
-  pptTemplateOverride = nodePath.resolve(args[pptTemplateIdx + 1]);
 }
 
 if (args.includes("--dangerously-skip-permissions")) {
@@ -55,13 +65,13 @@ if (args.includes("--help") || args.includes("-h")) {
     login                              사내 계정으로 로그인
     logout                             로그아웃
     update                             최신 버전으로 업데이트
+    doctor                             설치 및 실행 환경 진단
     design use bcave                   UI/대시보드 디자인 시스템 활성화
     design lint <file> [--system name] 생성된 HTML 디자인 규칙 검사
 
   ${chalk.bold("Options")}
     --hub-url <url>                    HUB 주소 지정 (예: http://hub.bcave.internal)
     --model <model>                    모델 변경 (기본: gpt-5.5)
-    --ppt-template <path>              이번 세션에서 사용할 PowerPoint 템플릿
     --safe                             Safe mode (모든 작업 전 확인)
     --auto-approve                     Auto mode: 카테고리별 자동 승인 (기본값)
     --dangerously-skip-permissions     모든 권한 확인 건너뛰기
@@ -72,14 +82,14 @@ if (args.includes("--help") || args.includes("-h")) {
 const nonFlagArgs = args.filter((a, i) => {
   if (a.startsWith("--")) return false;
   const prev = args[i - 1];
-  if (prev === "--model" || prev === "--hub-url" || prev === "--ppt-template") return false;
+  if (prev === "--model" || prev === "--hub-url") return false;
   return true;
 });
 
 // 서브커맨드: `bcave login` / `bcave logout` / `bcave update`
-let subcommand: "login" | "logout" | "update" | "design" | null = null;
-if (["login", "logout", "update", "design"].includes(nonFlagArgs[0])) {
-  subcommand = nonFlagArgs.shift() as "login" | "logout" | "update" | "design";
+let subcommand: "login" | "logout" | "update" | "design" | "doctor" | null = null;
+if (["login", "logout", "update", "design", "doctor"].includes(nonFlagArgs[0])) {
+  subcommand = nonFlagArgs.shift() as "login" | "logout" | "update" | "design" | "doctor";
 }
 const designArgs = subcommand === "design" ? nonFlagArgs.splice(0) : [];
 if (nonFlagArgs.length > 0) {
@@ -104,149 +114,34 @@ function cycleMode(): void {
 }
 
 // ─── Slash Commands ────────────────────────────────────
-const COMMANDS = [
-  { name: "/resume", desc: "이전 세션 다시 열기" },
-  { name: "/model", desc: "모델 선택 (gpt-5.6-luna 기본 · auto 용도별 라우팅)" },
-  { name: "/deploy", desc: "서비스를 사용할 장소 선택" },
-  { name: "/verify", desc: "완료 전 오류 자동 확인 on/off" },
-  { name: "/smoke", desc: "완성된 서비스 실제 실행 확인 on/off" },
-  { name: "/usage", desc: "사용량/한도 확인" },
-  { name: "/login", desc: "사내 계정 로그인" },
-  { name: "/logout", desc: "로그아웃" },
-  { name: "/mode", desc: "모드 전환" },
-  { name: "/help", desc: "도움말 표시" },
-  { name: "/reset", desc: "설정 초기화" },
-];
-
 // Interactive selector helper — used for both commands and models
 let selectorActive = false;
 // 로그인 비밀번호 등 민감 입력 중에는 전역 keypress 핸들러(/, Shift+Tab)를 비활성화
 let authInputActive = false;
 
-interface SelectorItem {
-  label: string;
-  dimLabel: string;
-}
-
-// 한글·CJK·전각 문자는 터미널에서 2칸을 차지한다. 표시 폭 기준으로 잘라야 줄바꿈이 안 생긴다.
-function charWidth(cp: number): number {
-  return (cp >= 0x1100 &&
-    (cp <= 0x115f || cp === 0x2329 || cp === 0x232a ||
-      (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
-      (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
-      (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
-      (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff)))
-    ? 2 : 1;
-}
-function dispWidth(s: string): number {
-  let w = 0;
-  for (const ch of s) w += charWidth(ch.codePointAt(0)!);
-  return w;
-}
-function truncWidth(s: string, maxW: number): string {
-  if (maxW <= 1) return "";
-  let w = 0, out = "";
-  for (const ch of s) {
-    const cw = charWidth(ch.codePointAt(0)!);
-    if (w + cw > maxW - 1) return out + "…";
-    w += cw;
-    out += ch;
-  }
-  return out;
-}
-
 async function showSelector(items: SelectorItem[], initialIndex = 0): Promise<number> {
-  return new Promise((resolve) => {
-    selectorActive = true;
-    let selected = initialIndex;
-    const count = items.length;
-
-    // ── readline/stdin 완전 무음화 ──────────────────────────────────────
-    // rl이 활성이면 키 입력이 에코되거나 prompt가 stdout에 출력돼 커서 위치가 어긋난다.
-    // 셀렉터 표시 중에는 rl을 완전히 닫고, stdin을 raw 모드로 직접 읽는다.
-    try { rl.pause(); } catch { /* noop */ }
-    const prevRawMode = process.stdin.isRaw;
-    try { process.stdin.setRawMode(true); } catch { /* noop */ }
-    process.stdin.resume();
-
-    // stdout 출력 직전 커서 숨김 / 이후 표시 (깜빡임 방지)
-    const hideCursor = () => process.stdout.write("\x1b[?25l");
-    const showCursor = () => process.stdout.write("\x1b[?25h");
-
-    const cols = () => Math.max(40, (process.stdout.columns || 80) - 4);
-    function lineText(i: number): string {
-      const prefix = i === selected ? "  \x1b[36m›\x1b[0m " : "    ";
-      const label = truncWidth(items[i].dimLabel, cols() - 4);
-      const colored = i === selected ? `\x1b[96m${label}\x1b[0m` : `\x1b[2m${label}\x1b[0m`;
-      return prefix + colored;
-    }
-
-    let linesDrawn = 0;
-    function render(): void {
-      hideCursor();
-      // 이전 블록 지우기: 이미 그린 줄만큼 올라가서 지운다
-      if (linesDrawn > 0) {
-        process.stdout.write(`\x1b[${linesDrawn}A`);
-      }
-      const out: string[] = [];
-      for (let i = 0; i < count; i++) {
-        out.push("\r\x1b[2K" + lineText(i));
-      }
-      process.stdout.write(out.join("\n") + "\n");
-      linesDrawn = count;
-      showCursor();
-    }
-
-    function cleanup(result: number): void {
-      // 블록 전체 지우기
-      if (linesDrawn > 0) {
-        process.stdout.write(`\x1b[${linesDrawn}A`);
-        for (let i = 0; i < linesDrawn; i++) process.stdout.write("\r\x1b[2K\n");
-        process.stdout.write(`\x1b[${linesDrawn}A`);
-      }
-      showCursor();
-      process.stdin.removeListener("keypress", onKeypress);
-      try { process.stdin.setRawMode(prevRawMode ?? false); } catch { /* noop */ }
-      try { rl.resume(); } catch { /* noop */ }
-      // readline 버퍼 초기화
-      const rlAny = rl as unknown as { line: string; cursor: number };
-      rlAny.line = ""; rlAny.cursor = 0;
-      selectorActive = false;
-      resolve(result);
-    }
-
-    // Node의 keypress 파서를 사용한다. 방향키의 ESC/[A 바이트가 서로 다른
-    // data 청크로 들어와도 완성된 하나의 up/down 키로 전달되므로 ESC 취소와 섞이지 않는다.
-    const onKeypress = (str: string, key: readline.Key) => {
-      if (key?.name === "up") {
-        selected = (selected - 1 + count) % count;
-        render();
-      } else if (key?.name === "down") {
-        selected = (selected + 1) % count;
-        render();
-      } else if (key?.name === "return" || key?.name === "enter") {
-        cleanup(selected);
-      } else if (key?.name === "escape") {
-        cleanup(-1);
-      } else if (/^[0-9]$/.test(str)) {
-        const n = Number(str);
-        if (n >= 0 && n < count) { selected = n; cleanup(selected); }
-      }
-    };
-
-    process.stdin.on("keypress", onKeypress);
-    render();
-  });
+  return showTerminalSelector(items, {
+    input: process.stdin,
+    output: process.stdout,
+    pause: () => rl.pause(),
+    resume: () => rl.resume(),
+    resetLine: () => {
+      const state = rl as unknown as { line: string; cursor: number };
+      state.line = "";
+      state.cursor = 0;
+    },
+    setActive: (active) => { selectorActive = active; },
+  }, initialIndex);
 }
 
 async function selectCommand(): Promise<string | null> {
-  const items = COMMANDS.map((c) => ({
+  const items = CLI_COMMANDS.map((c) => ({
     label: `${c.name.padEnd(14)}${c.desc}`,
     dimLabel: `${c.name.padEnd(14)}${c.desc}`,
   }));
   const idx = await showSelector(items);
   if (idx < 0) return null;
-  return COMMANDS[idx].name;
+  return CLI_COMMANDS[idx].name;
 }
 
 // ─── Readline ──────────────────────────────────────────
@@ -264,33 +159,15 @@ if (process.stdout.isTTY) {
   process.stdout.write("\x1b[?2004h"); // 브라케티드 페이스트 활성화
   process.on("exit", () => { try { process.stdout.write("\x1b[?2004l"); } catch { /* noop */ } });
 }
-let _isPasting = false;
-let _pasteAccum = "";
-const _rlAny = rl as unknown as { _normalWrite?: (b: Buffer) => void };
+const _rlAny = rl as unknown as { _normalWrite?: (buffer: Buffer) => void };
 const _origWrite = _rlAny._normalWrite?.bind(rl);
-if (_origWrite) {
-  _rlAny._normalWrite = (buf: Buffer) => {
-    const s = buf.toString("utf8");
-    if (s === "\x1b[200~") { _isPasting = true; _pasteAccum = ""; return; }
-    if (s === "\x1b[201~") {
-      _isPasting = false;
-      if (_pasteAccum) _origWrite(Buffer.from(_pasteAccum, "utf8"));
-      _pasteAccum = "";
-      return;
-    }
-    if (_isPasting) {
-      // 줄바꿈(\r\n, \n, \r) → 공백으로 치환해 Enter 로 해석되지 않게
-      _pasteAccum += s.replace(/\r\n|\r|\n/g, " ");
-      return;
-    }
-    _origWrite(buf);
-  };
-}
+if (_origWrite) _rlAny._normalWrite = createBracketedPasteWriter(_origWrite);
 
 // Shift+Tab: mode cycle
-process.stdin.on("keypress", (_str: string, key: readline.Key) => {
-  if (selectorActive || authInputActive || processing) return;
-  if (key && key.name === "tab" && key.shift) {
+process.stdin.on("keypress", (str: string, key: readline.Key) => {
+  const rlState = rl as unknown as { line: string; cursor: number; _refreshLine?: () => void };
+  const action = globalKeyAction(str, key, selectorActive || authInputActive || workSession.processing, rlState.line ?? "");
+  if (action === "cycle-mode") {
     process.stdout.write("\r\x1b[2K");
     cycleMode();
     setImmediate(() => {
@@ -301,13 +178,12 @@ process.stdin.on("keypress", (_str: string, key: readline.Key) => {
   }
   // ESC: 현재 입력 전체 지우기 (작업 중 아닐 때)
   // — 딜리트 키로 한 자씩 지우는 불편함을 해소
-  if (key && key.name === "escape") {
-    const rlAny = rl as unknown as { line: string; cursor: number; _refreshLine?: () => void };
-    if (rlAny.line && rlAny.line.length > 0) {
-      rlAny.line = "";
-      rlAny.cursor = 0;
+  if (action === "clear-line") {
+    if (rlState.line && rlState.line.length > 0) {
+      rlState.line = "";
+      rlState.cursor = 0;
       process.stdout.write("\r\x1b[2K");
-      rlAny._refreshLine?.();
+      rlState._refreshLine?.();
     }
     return;
   }
@@ -317,11 +193,10 @@ process.stdin.on("keypress", (_str: string, key: readline.Key) => {
 let pendingCommandSelector = false;
 
 process.stdin.on("keypress", (str: string) => {
-  if (selectorActive || authInputActive || processing) return;
   if (str === "/") {
     setImmediate(() => {
       const line = (rl as unknown as { line: string }).line ?? "";
-      if (line === "/") {
+      if (globalKeyAction(str, undefined, selectorActive || authInputActive || workSession.processing, line) === "open-command") {
         pendingCommandSelector = true;
         // Clear visual line and submit empty to close current rl.question
         process.stdout.write("\r\x1b[2K");
@@ -343,26 +218,7 @@ function safeCwd(): string {
 
 /** 터미널 폭을 고려해 경로를 짧게 줄인다. 홈은 ~로, 긴 경로는 끝 2단계만 표시. */
 function shortPath(p: string): string {
-  const home = os.homedir();
-  const rel = p.startsWith(home) ? "~" + p.slice(home.length) : p;
-  const cols = getTermWidth();
-  // 프롬프트 고정 부분 폭: "Auto mode " + " > " (chalk 색상 코드 제외한 실제 표시 폭)
-  const modeLabel = MODE_INFO[mode].label; // e.g. "Auto mode"
-  const fixedWidth = dispWidth(modeLabel) + 3; // " > " = 3
-  const maxPath = Math.max(15, cols - fixedWidth - 2);
-  if (dispWidth(rel) <= maxPath) return rel;
-  // 너무 길면 끝 2단계만 (~/.../parent/dir)
-  const parts = p.replace(home, "~").split("/").filter(Boolean);
-  return (p.startsWith(home) ? "~" : "") + "/…/" + parts.slice(-2).join("/");
-}
-
-/**
- * ANSI 이스케이프 시퀀스를 readline 비표시 마커(\x01...\x02)로 감싼다.
- * readline 이 프롬프트 표시 폭을 계산할 때 ANSI 코드를 폭 0으로 처리하도록 해,
- * 한글·CJK 입력 시 커서 위치 계산 오류(중복/깨짐)를 방지한다.
- */
-function rlWrap(s: string): string {
-  return s.replace(/\x1b\[[0-9;]*m/g, (m) => `\x01${m}\x02`);
+  return shortenPath(p, MODE_INFO[mode].label, getTermWidth(), os.homedir());
 }
 
 function prompt(): void {
@@ -377,162 +233,12 @@ function prompt(): void {
   });
 }
 
-// 툴 실행을 사용자 친화적 한 줄 상태로 (원문 덤프 대신). 파일명·명령만 짧게.
-function toolStatus(name: string, args: Record<string, unknown>): string {
-  const base = (s: string) => {
-    const b = (s.split("/").pop() || s).trim();
-    return b.length > 42 ? b.slice(0, 42) + "…" : b;
-  };
-  const path = typeof args.path === "string" ? args.path : "";
-  const tgt = (s: string) => (s ? "  " + chalk.dim(base(s)) : "");
-  switch (name) {
-    case "read_file": return "파일 읽는 중" + tgt(path);
-    case "write_file": return "파일 작성 중" + tgt(path);
-    case "list_files": return "폴더 살펴보는 중" + tgt(path);
-    case "search_files": return "검색 중";
-    case "shell_exec": {
-      const c = String(args.command ?? "").replace(/\s+/g, " ").trim();
-      return "작업 중" + (c ? "  " + chalk.dim(c.length > 46 ? c.slice(0, 46) + "…" : c) : "");
-    }
-    default: return name;
-  }
-}
-
-// shell 실패 시 STDERR 첫 의미있는 줄을 뽑는다.
-function shellErrReason(r: string): string {
-  const idx = r.indexOf("STDERR:");
-  const tail = idx >= 0 ? r.slice(idx + 7) : r.replace(/^Exit code \d+\n?/, "");
-  const line = tail
-    .split("\n")
-    .map((s) => s.trim())
-    .find((s) => s && !/^Exit code/.test(s));
-  return line ? (line.length > 90 ? line.slice(0, 90) + "…" : line) : "";
-}
-
-// 도구 실행 결과를 사람이 읽기 좋은 한 줄로. 표시할 게 없으면 null(조용히).
-function toolResultLine(name: string, result: string): string | null {
-  const r = (result || "").trim();
-  const exitM = r.match(/^Exit code (\d+)/);
-  if (exitM) {
-    const reason = shellErrReason(r);
-    return chalk.yellow("    ⚠ 실패") + chalk.dim(` (exit ${exitM[1]})${reason ? " · " + reason : ""}`);
-  }
-  if (/^(Error|Invalid regular expression)/.test(r)) {
-    return chalk.yellow("    ⚠ ") + chalk.dim(r.split("\n")[0].slice(0, 110));
-  }
-  if (/^\[바이너리/.test(r)) return null;
-  if (name === "write_file") {
-    if (/^File not written\./.test(r)) {
-      return chalk.red("    ✗ 저장 안 됨") + chalk.dim(" · " + r.replace(/^File not written\.\s*/, "").split("\n")[0].slice(0, 100));
-    }
-    if (/^File written but NOT complete:/.test(r)) {
-      const attempt = r.match(/수정 시도 (\d+)/)?.[1];
-      return chalk.yellow("    ↻ 자동 교정 중") + chalk.dim(` · ${attempt ? `${attempt}차 검토에서 ` : ""}재작성 필요`);
-    }
-    if (/⚠/.test(r)) {
-      const detail = r.split("\n").slice(1).join(" ").replace(/\s+/g, " ").trim().slice(0, 90);
-      return chalk.yellow("    ⚠ 검토 경고") + (detail ? chalk.dim(" · " + detail) : "");
-    }
-    return chalk.dim("    ✓ 저장됨");
-  }
-  if (name === "shell_exec") {
-    if (r.startsWith("[SERVER_START_FAILED]")) {
-      return chalk.red("    ✗ 서비스가 아직 열리지 않습니다") + chalk.dim(" · 원인을 확인하고 다시 시도합니다");
-    }
-    if (r.startsWith("[SERVER_STARTED]")) {
-      const url = r.match(/https?:\/\/[^\s]+/)?.[0];
-      return chalk.green("    ✓ 서비스 화면이 정상적으로 열립니다") + chalk.dim(url ? " · " + url : "");
-    }
-    const firstOut = r.split("\n").map((s) => s.trim()).find(Boolean);
-    return chalk.dim("    ✓ 완료" + (firstOut ? " · " + (firstOut.length > 80 ? firstOut.slice(0, 80) + "…" : firstOut) : ""));
-  }
-  return null; // read_file/list_files/search_files 성공은 표시하지 않음(⚡ 라인으로 충분)
-}
-
-function friendlyVerifyLabel(cmd: string): string {
-  if (/화면 기능|완성도/.test(cmd)) return "화면에 보이는 기능이 모두 동작하는지 확인";
-  if (/스키마|DB/i.test(cmd)) return "입력한 내용이 저장되는지 확인";
-  if (/proxy|API/i.test(cmd)) return "화면과 데이터가 연결되는지 확인";
-  if (/서버|스모크|health/i.test(cmd)) return "서비스가 실제로 열리는지 확인";
-  return "코드 오류 확인";
-}
-
-function friendlyErrorMessage(message: string): string {
-  if (/서버 실행|서비스 실행|SERVER_START|HTTP 응답/i.test(message)) return "서비스가 아직 정상적으로 열리지 않습니다. 원인을 확인했지만 자동으로 해결하지 못했습니다.";
-  if (/DB 스키마|schema|INSERT/i.test(message)) return "입력한 내용을 저장하는 기능에 문제가 남아 있어 완료하지 않았습니다.";
-  if (/Vite|proxy|API 검증/i.test(message)) return "화면과 데이터 연결에 문제가 남아 있어 완료하지 않았습니다.";
-  if (/빌드|타입|검증에 실패/i.test(message)) return "코드 오류가 남아 있어 완료하지 않았습니다.";
-  return message;
-}
-
-// ─── 작업 중 스피너 / 입력 차단 / ESC 취소 ───────────────
-let processing = false;
-let aborted = false;
-let abortController: AbortController | null = null;
-let workRawListener: ((b: Buffer) => void) | null = null;
-
-// 작업 중에는 readline 을 멈춰(에코·버퍼링 방지) 입력을 막고, ESC 만 raw 로 감지해 취소.
-function enterWorkInput(): void {
-  try { rl.pause(); } catch { /* noop */ }
-  workRawListener = (buf: Buffer) => {
-    if (buf.includes(0x1b)) {
-      aborted = true;
-      abortController?.abort(); // 진행 중인 API 요청 즉시 취소
-      stopSpinner();
-      process.stdout.write("  " + chalk.yellow("■ 중지 중…") + "\n");
-    }
-  };
-  process.stdin.on("data", workRawListener);
-  // rl.pause() 로 명시적으로 멈춘 stdin 은 data 리스너를 추가해도 자동 재개되지 않는다.
-  // resume() 을 호출해야 ESC 바이트가 리스너로 흐른다.
-  try { process.stdin.resume(); } catch { /* noop */ }
-}
-function exitWorkInput(): void {
-  if (workRawListener) {
-    process.stdin.removeListener("data", workRawListener);
-    workRawListener = null;
-  }
-  try { rl.resume(); } catch { /* noop */ }
-}
-
-const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-let spinnerTimer: ReturnType<typeof setInterval> | null = null;
-// 요청 1건의 시작 시각(경과·소요 시간 표시용). 0이면 미측정.
-let runStartMs = 0;
-// 라이브 스피너용 압축 표기: 45초 / 1:20 / 12:05
-function fmtClock(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}초`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
-}
-// 완료 메시지용 친화 표기: 45초 / 1분 20초
-function fmtDuration(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}초`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return r ? `${m}분 ${r}초` : `${m}분`;
-}
-function startSpinner(label = "작업 중…"): void {
-  stopSpinner();
-  let i = 0;
-  spinnerTimer = setInterval(() => {
-    const el = runStartMs ? chalk.dim(`· ${fmtClock(Date.now() - runStartMs)} 경과 `) : "";
-    process.stdout.write(
-      `\r\x1b[2K  ${chalk.cyan(SPIN[i % SPIN.length])} ${chalk.dim(label)} ${el}${chalk.dim("· ESC 로 중지")}`,
-    );
-    i++;
-  }, 80);
-}
-function stopSpinner(): void {
-  if (spinnerTimer) {
-    clearInterval(spinnerTimer);
-    spinnerTimer = null;
-    process.stdout.write("\r\x1b[2K");
-  }
-}
+const workSession = new WorkSession({
+  input: process.stdin,
+  output: process.stdout,
+  pause: () => rl.pause(),
+  resume: () => rl.resume(),
+});
 
 // 권한 확인 — 방향키(↑↓)·숫자·Enter 로 선택 (Esc=아니오)
 async function askYesNo(): Promise<boolean> {
@@ -569,52 +275,16 @@ let cm: ConversationManager | null = null;
 
 function rebuildCM(): void {
   const pm = new PermissionManager(mode);
-  cm = new ConversationManager(config, pm, safeCwd(), pptTemplateOverride);
+  cm = new ConversationManager(config, pm, safeCwd());
 }
 
 // ─── 세션(대화) 저장/복원 ───────────────────────────────
-let sessionId = newSessionId();
-let sessionCreatedAt = new Date().toISOString();
-let sessionTitle = "";
-let sessionTurns = 0;
+const sessionController = new SessionController();
 
 /** 한 턴 끝날 때마다 현재 대화를 세션 파일로 저장한다. */
 function persistSession(userMsg: string): void {
   if (!cm) return;
-  if (!sessionTitle) sessionTitle = userMsg.replace(/\s+/g, " ").trim().slice(0, 80);
-  sessionTurns++;
-  saveSession({
-    id: sessionId,
-    createdAt: sessionCreatedAt,
-    updatedAt: new Date().toISOString(),
-    cwd: safeCwd(),
-    title: sessionTitle,
-    turns: sessionTurns,
-    messages: cm.getHistory(),
-  });
-}
-
-/** ISO 시간 → "방금/N분 전/N시간 전/N일 전" */
-function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "방금";
-  if (m < 60) return `${m}분 전`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}시간 전`;
-  return `${Math.floor(h / 24)}일 전`;
-}
-
-function homeShort(p: string): string {
-  const home = process.env.HOME ?? "";
-  return home && p.startsWith(home) ? "~" + p.slice(home.length) : p;
-}
-
-/** 메시지에서 텍스트만 뽑기(도구 호출/결과는 건너뜀). */
-function msgText(m: { role?: string; content?: unknown }): string {
-  if (typeof m.content === "string") return m.content;
-  if (Array.isArray(m.content)) return m.content.map((p) => (typeof p === "string" ? p : ((p as { text?: string })?.text ?? ""))).join(" ");
-  return "";
+  sessionController.persist(userMsg, safeCwd(), cm.getHistory());
 }
 
 // /resume — 이전 세션을 골라 다시 연다
@@ -647,10 +317,7 @@ async function resumeCommand(): Promise<void> {
   }
   cm.loadHistory(s.messages);
   // 이후 저장이 이 세션을 이어서 갱신하도록 포인터 전환
-  sessionId = s.id;
-  sessionCreatedAt = s.createdAt;
-  sessionTitle = s.title;
-  sessionTurns = s.turns;
+  sessionController.restore(s);
   console.log("  " + chalk.green("✓ 세션 복원: ") + (s.title || "(제목 없음)") + chalk.dim(`  (${s.turns}턴 · ${relTime(s.updatedAt)})`));
   // 마지막 사용자/어시스턴트 대화를 짧게 리캡
   const lastUser = [...s.messages].reverse().find((m) => m.role === "user");
@@ -660,26 +327,14 @@ async function resumeCommand(): Promise<void> {
   console.log("  " + chalk.dim("이어서 입력하면 이 대화가 계속됩니다."));
 }
 
-// ─── Model Selection ───────────────────────────────────
-// HUB 연결이 안 될 때만 쓰는 폴백 목록 (평상시엔 서버에서 받아온다)
-const FALLBACK_MODELS: HubModel[] = [
-  { id: "gpt-5.6-luna", displayName: "gpt-5.6-luna (기본)", description: "OpenAI GPT-5.6-luna · 고품질 코딩/추론" },
-];
-
 async function selectModel(): Promise<void> {
   console.log(chalk.bold("  Select Model"));
   console.log("");
 
   // 로그인 상태면 HUB 에서 "내가 쓸 수 있는 모델"을 받아온다 (RBAC 반영)
-  let models: HubModel[] = FALLBACK_MODELS;
-  if (isLoggedIn(config)) {
-    try {
-      const fetched = await hubListModels(config.hubUrl, config.accessToken);
-      if (fetched.length > 0) models = fetched;
-    } catch {
-      console.log(chalk.dim("  (HUB 모델 목록을 못 받아 기본 목록을 표시합니다)"));
-    }
-  }
+  const available = await availableModels(config);
+  const models = available.models;
+  if (available.usedFallback && isLoggedIn(config)) console.log(chalk.dim("  (HUB 모델 목록을 못 받아 기본 목록을 표시합니다)"));
 
   const initialIdx = Math.max(0, models.findIndex((m) => m.id === config.model));
   const items = models.map((m, i) => {
@@ -699,14 +354,6 @@ async function selectModel(): Promise<void> {
   }
 }
 
-// ─── 사용량 확인 ───────────────────────────────────────
-// 요청당 비용이 1센트 미만이라, 소액은 4자리까지 표시한다.
-function fmtUsd(n: number): string {
-  if (n === 0) return "$0.00";
-  if (n < 1) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
-}
-
 async function showUsage(): Promise<void> {
   if (!isLoggedIn(config)) {
     console.log(chalk.dim("  로그인이 필요합니다. /login 하세요."));
@@ -720,21 +367,13 @@ async function showUsage(): Promise<void> {
       console.log("");
       return;
     }
-    const LABEL = { daily: "오늘", weekly: "이번 주", monthly: "이번 달" } as const;
     console.log(chalk.bold(`  사용량`) + chalk.dim(`  ·  등급: ${u.tierName ?? u.role ?? "-"}`));
     console.log("");
-    for (const key of ["daily", "weekly", "monthly"] as const) {
-      const p = u.periods[key];
-      const used = fmtUsd(p.used);
-      const limit = p.limit === 0 ? "무제한" : fmtUsd(p.limit);
-      const pct = p.limit > 0 ? ` (${Math.min(100, Math.round((p.used / p.limit) * 100))}%)` : "";
-      const reset = new Date(p.reset).toLocaleString("ko-KR", {
-        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-      });
+    for (const row of usageRows(u)) {
       console.log(
-        "  " + chalk.cyan(LABEL[key].padEnd(7)) +
-        `${used} / ${limit}` + chalk.dim(pct) +
-        chalk.dim(`   · 리셋 ${reset}`)
+        "  " + chalk.cyan(row.label.padEnd(7)) +
+        `${row.used} / ${row.limit}` + chalk.dim(row.percentage) +
+        chalk.dim(`   · 리셋 ${row.reset}`)
       );
     }
     console.log("");
@@ -746,62 +385,22 @@ async function showUsage(): Promise<void> {
 
 // ─── HUB 로그인 ────────────────────────────────────────
 /** 비밀번호 입력 (에코 숨김) */
+function authInputOptions(): AuthInputOptions {
+  return {
+    input: process.stdin,
+    output: process.stdout,
+    question: (query, callback) => rl.question(query, callback),
+    setActive: (active) => { authInputActive = active; },
+    onInterrupt: () => process.exit(0),
+  };
+}
+
 function askPassword(query: string): Promise<string> {
-  return new Promise((resolve) => {
-    authInputActive = true;
-    const stdin = process.stdin;
-    // 라벨을 그대로 출력 (이메일 프롬프트와 동일하게 보이도록)
-    process.stdout.write(query);
-
-    // 비밀번호 입력 동안에는 readline 의 라인 편집(에코)을 잠시 끄기 위해
-    // keypress 리스너를 보관 후 해제하고, raw 바이트를 직접 읽어 * 로 표시한다.
-    const savedKeypress = stdin.listeners("keypress") as Array<
-      (...a: unknown[]) => void
-    >;
-    stdin.removeAllListeners("keypress");
-
-    let pw = "";
-    const onData = (buf: Buffer) => {
-      for (const ch of buf.toString("utf8")) {
-        if (ch === "\r" || ch === "\n") {
-          finish();
-          return;
-        } else if (ch === "\x7f" || ch === "\b") {
-          if (pw.length) {
-            pw = pw.slice(0, -1);
-            process.stdout.write("\b \b");
-          }
-        } else if (ch === "\x03") {
-          // Ctrl-C
-          process.stdout.write("\n");
-          process.exit(0);
-        } else if (ch >= " ") {
-          pw += ch;
-          process.stdout.write("*");
-        }
-      }
-    };
-
-    function finish(): void {
-      stdin.removeListener("data", onData);
-      for (const l of savedKeypress) stdin.on("keypress", l);
-      authInputActive = false;
-      process.stdout.write("\n");
-      resolve(pw);
-    }
-
-    stdin.on("data", onData);
-  });
+  return askHidden(query, authInputOptions());
 }
 
 function askLine(query: string): Promise<string> {
-  return new Promise((resolve) => {
-    authInputActive = true;
-    rl.question(query, (value) => {
-      authInputActive = false;
-      resolve(value);
-    });
-  });
+  return askVisible(query, authInputOptions());
 }
 
 /**
@@ -830,20 +429,12 @@ async function loginFlow(cancellable = false): Promise<boolean> {
 
     process.stdout.write(chalk.dim("  로그인 중…"));
     try {
-      const result = await hubLogin(config.hubUrl, email, password);
-      saveConfig({
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        userEmail: result.user.email,
-        userName: result.user.name,
-        // 게이트웨이 모드로 전환되므로 레거시 키 흔적 제거
-        apiKey: "",
-      });
+      const result = await authenticate(config, email, password);
+      saveConfig(result.config);
       config = loadConfig();
       process.stdout.write("\r\x1b[2K");
       console.log(chalk.green(`  ✓ 로그인되었습니다: ${result.user.name} (${result.user.email})`));
-      const hasCli = result.user.services.includes("BCAVE_CODE");
-      if (!hasCli) {
+      if (!result.hasCliAccess) {
         console.log(chalk.yellow("  ⚠ BCAVE_CODE 서비스 권한이 아직 없습니다. HUB 에서 신청 후 관리자 승인이 필요합니다."));
       }
       console.log("");
@@ -863,50 +454,20 @@ async function doLogout(): Promise<void> {
     console.log(chalk.dim("  로그인 상태가 아닙니다."));
     return;
   }
-  await hubLogout(config.hubUrl, config.accessToken, config.refreshToken);
-  saveConfig({ accessToken: "", refreshToken: "", userEmail: "", userName: "" });
+  saveConfig(await endSession(config));
   config = loadConfig();
   cm = null;
   console.log(chalk.green("  ✓ 로그아웃되었습니다."));
 }
 
 // ─── 버전 체크 / 업데이트 ──────────────────────────────
-const REPO_URL = "https://github.com/DEVZZAME/bcave-agent.git";
-
-function installDir(): string {
-  // dist/cli/index.js → 저장소 루트(../../)
-  const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  return nodePath.resolve(here, "..", "..");
-}
-
-/** 설치본 커밋과 GitHub master 최신 커밋을 비교. 새 버전이 있으면 true. */
-function checkForUpdate(): boolean {
-  try {
-    const dir = installDir();
-    const opt = { cwd: dir, timeout: 3000, stdio: "pipe" as const };
-    const local = execSync("git rev-parse HEAD", opt).toString().trim();
-    const remote = execSync(`git ls-remote ${REPO_URL} refs/heads/master`, opt)
-      .toString()
-      .trim()
-      .split(/\s+/)[0];
-    return !!local && !!remote && local !== remote;
-  } catch {
-    return false;
-  }
-}
-
 async function doUpdate(): Promise<boolean> {
-  const dir = installDir();
-  const run = (cmd: string, timeout: number) => execSync(cmd, { cwd: dir, stdio: "ignore", timeout });
   console.log("");
   try {
-    console.log("  " + chalk.cyan("▸") + " 최신 버전을 받는 중…");
-    run("git fetch --depth 1 origin master", 60000);
-    run("git reset --hard origin/master", 20000);
-    console.log("  " + chalk.cyan("▸") + " 의존성 설치…");
-    run("npm install --silent", 300000);
-    console.log("  " + chalk.cyan("▸") + " 빌드…");
-    run("npm run build --silent", 180000);
+    console.log("  " + chalk.cyan("▸") + " 안전 업데이트를 시작합니다…");
+    const result = runSafeUpdate(resolveInstallDir());
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`설치기가 종료 코드 ${result.status ?? "unknown"}로 끝났습니다.`);
     console.log("  " + chalk.green("✓ 최신 버전으로 업데이트했습니다."));
     console.log("");
     return true;
@@ -920,12 +481,9 @@ async function doUpdate(): Promise<boolean> {
 
 /** 업데이트 후 방금 빌드된 CLI 를 새 프로세스로 자동 재실행(현재 프로세스는 옛 코드라 교체 필요). */
 function relaunchUpdated(): never {
-  const entry = nodePath.join(installDir(), "dist", "cli", "index.js");
   console.log("  " + chalk.cyan("▸") + " bcave 를 다시 시작합니다…");
   console.log("");
-  // stdio 상속으로 대화형 세션을 자식이 그대로 이어받게 함. 업데이트 인자는 제거하고 일반 실행.
-  const res = spawnSync(process.execPath, [entry], { stdio: "inherit" });
-  process.exit(res.status ?? 0);
+  return relaunchUpdatedCli();
 }
 
 // ─── Command Handlers ──────────────────────────────────
@@ -933,7 +491,7 @@ function showHelp(): void {
   console.log("");
   console.log(chalk.bold("  Commands"));
   console.log("");
-  for (const cmd of COMMANDS) {
+  for (const cmd of CLI_COMMANDS) {
     console.log("    " + chalk.cyan(cmd.name.padEnd(14)) + chalk.dim(cmd.desc));
   }
   console.log("    " + chalk.cyan("Shift+Tab".padEnd(14)) + chalk.dim("모드 전환"));
@@ -943,7 +501,10 @@ function showHelp(): void {
 }
 
 async function handleSlashCommand(text: string): Promise<boolean> {
-  const trimmed = text.trim();
+  const parsed = parseSlashCommand(text);
+  if (!parsed) return false;
+  const trimmed = parsed.raw;
+  const setting = settingsAction(parsed);
 
   if (trimmed === "/help") { showHelp(); return true; }
 
@@ -954,54 +515,42 @@ async function handleSlashCommand(text: string): Promise<boolean> {
   if (trimmed === "/usage") { await showUsage(); return true; }
 
   if (trimmed === "/reset") {
-    const configPath = `${getConfigDir()}/config.json`;
-    if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
+    resetConfig();
     console.log(chalk.green("  ✓ 설정 초기화 완료. 다시 시작해주세요."));
     process.exit(0);
   }
 
-  if (trimmed === "/model" || trimmed.startsWith("/model ")) {
-    const arg = trimmed.slice(7).trim();
-    const [sub, ...rest] = arg.split(/\s+/);
-    const val = rest.join(" ").trim();
-    // 용도별 자동 라우팅 제어
-    if (sub === "auto") {
+  if (setting?.kind === "model-auto") {
       saveConfig({ autoRoute: true });
       config = loadConfig();
       rebuildCM();
       console.log(chalk.green("  ✓ 자동 라우팅 ON") + chalk.dim(`  (개발/UI → ${config.modelHeavy} · 질문/연산 → ${config.modelLight})`));
-      return true;
-    }
-    if (sub === "heavy" && val) {
-      saveConfig({ modelHeavy: val }); config = loadConfig(); rebuildCM();
-      console.log(chalk.green(`  ✓ 개발/UI 모델 → ${val}`));
-      return true;
-    }
-    if (sub === "light" && val) {
-      saveConfig({ modelLight: val }); config = loadConfig(); rebuildCM();
-      console.log(chalk.green(`  ✓ 질문/연산 모델 → ${val}`));
-      return true;
-    }
-    // 특정 모델 직접 지정 → 수동 모드(자동 라우팅 off)
-    if (arg) {
-      saveConfig({ model: arg, autoRoute: false });
+    return true;
+  }
+  if (setting?.kind === "model-heavy" || setting?.kind === "model-light") {
+    const patch = setting.kind === "model-heavy" ? { modelHeavy: setting.model } : { modelLight: setting.model };
+    saveConfig(patch); config = loadConfig(); rebuildCM();
+    console.log(chalk.green(`  ✓ ${setting.kind === "model-heavy" ? "개발/UI" : "질문/연산"} 모델 → ${setting.model}`));
+    return true;
+  }
+  if (setting?.kind === "model-manual") {
+      saveConfig({ model: setting.model, autoRoute: false });
       config = loadConfig();
       rebuildCM();
-      console.log(chalk.green(`  ✓ model → ${arg}`) + chalk.dim("  (자동 라우팅 OFF — /model auto 로 복귀)"));
+      console.log(chalk.green(`  ✓ model → ${setting.model}`) + chalk.dim("  (자동 라우팅 OFF — /model auto 로 복귀)"));
       return true;
-    }
-    // Interactive model selection
+  }
+  if (setting?.kind === "model-select") {
     await selectModel();
     return true;
   }
 
-  if (trimmed === "/verify" || trimmed.startsWith("/verify ")) {
-    const arg = trimmed.slice(7).trim().toLowerCase();
-    if (arg === "on" || arg === "off") {
-      saveConfig({ autoVerify: arg === "on" });
+  if (setting?.kind === "toggle" && setting.setting === "verify") {
+    if (setting.value !== null) {
+      saveConfig({ autoVerify: setting.value });
       config = loadConfig();
       rebuildCM();
-      console.log(chalk.green(`  ✓ 완료 전 오류 자동 확인 ${arg === "on" ? "ON" : "OFF"}`));
+      console.log(chalk.green(`  ✓ 완료 전 오류 자동 확인 ${setting.value ? "ON" : "OFF"}`));
     } else {
       console.log("  " + chalk.dim(`완료 전 오류 자동 확인: ${config.autoVerify ? "ON" : "OFF"}  ·  /verify on|off 로 전환`));
     }
@@ -1011,19 +560,11 @@ async function handleSlashCommand(text: string): Promise<boolean> {
 
 
   if (trimmed === "/deploy") {
-    const deployItems = [
-      { label: "내 컴퓨터에서 먼저 사용", dimLabel: "1. 내 컴퓨터에 저장 ✦ 빠르게 확인하고 나중에 온라인 전환" },
-      { label: "검색 노출 중심으로 공개", dimLabel: "2. 검색 노출 중심으로 인터넷에 공개 (Vercel)" },
-      { label: "간편하게 인터넷에 공개  ✦ 추천", dimLabel: "3. 화면과 데이터 기능을 한 번에 공개 (Railway)" },
-      { label: "여러 지역에서 안정적으로 운영", dimLabel: "4. 이용자와 가까운 지역에서 운영 (Fly.io)" },
-      { label: "큰 규모의 회사 서비스", dimLabel: "5. 많은 사용자를 위한 회사용 운영 환경 (AWS)" },
-      { label: "회사 서버에서 직접 운영", dimLabel: "6. 보유한 서버에서 직접 관리" },
-    ];
-    const answers = ["local", "vercel", "railway", "fly", "aws", "vps"];
+    const deployItems = deployChoices();
     console.log("\n  " + chalk.bold("서비스를 어디에서 사용할까요?") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
     const idx = await showSelector(deployItems);
     if (idx >= 0) {
-      const chosen = answers[idx];
+      const chosen = deployItems[idx].answer;
       if (cm) cm.setDeployTarget(chosen);
       console.log(chalk.green(`  ✓ 배포 환경 → ${deployItems[idx].label}`) + chalk.dim("  (다음 서비스 개발부터 적용)"));
     } else {
@@ -1032,13 +573,12 @@ async function handleSlashCommand(text: string): Promise<boolean> {
     return true;
   }
 
-  if (trimmed === "/smoke" || trimmed.startsWith("/smoke ")) {
-    const arg = trimmed.slice(6).trim().toLowerCase();
-    if (arg === "on" || arg === "off") {
-      saveConfig({ smokeTest: arg === "on" });
+  if (setting?.kind === "toggle" && setting.setting === "smoke") {
+    if (setting.value !== null) {
+      saveConfig({ smokeTest: setting.value });
       config = loadConfig();
       rebuildCM();
-      console.log(chalk.green(`  ✓ 완성된 서비스 실제 실행 확인 ${arg === "on" ? "ON" : "OFF"}`));
+      console.log(chalk.green(`  ✓ 완성된 서비스 실제 실행 확인 ${setting.value ? "ON" : "OFF"}`));
     } else {
       console.log("  " + chalk.dim(`완성된 서비스 실제 실행 확인: ${config.smokeTest ? "ON" : "OFF"}  ·  /smoke on|off 로 전환`));
     }
@@ -1062,19 +602,15 @@ async function handleSlashCommand(text: string): Promise<boolean> {
 // ─── Agent Events ──────────────────────────────────────
 async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promise<void> {
   let gen = initialGen;
-  processing = true;
-  aborted = false;
-  runStartMs = Date.now();
+  let elapsedMs = 0;
   let autoReply = ""; // 셀렉터 선택 후 다음 턴에 자동으로 보낼 응답
-  enterWorkInput();
-  startSpinner();
   try {
     // autoReply 가 설정되면 현재 루프를 break 하고 새 gen 으로 재시작한다.
     // (for-await 안에서 gen 을 재할당해도 이터레이터는 바뀌지 않으므로 while 로 감쌈)
     outer: while (true) {
     inner: for await (const event of gen) {
-      if (aborted) break outer;
-      stopSpinner();
+      if (workSession.aborted) break outer;
+      workSession.stopSpinner();
 
       switch (event.type) {
         case "model": {
@@ -1090,28 +626,12 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
           if (/어디에 배포할 예정인가요|어떤 환경에 배포할 예정인가요|서비스를 어디에서 사용할까요/.test(event.content)) {
             // 스택 직후 배포 질문(5개) vs 독립 배포 질문(6개) 구분
             const isPostStack = /DB 종류|내 컴퓨터에서 먼저 사용/.test(event.content);
-            const deployItems = isPostStack ? [
-              { label: "내 컴퓨터에서 먼저 사용  ✦ 추천", dimLabel: "1. 내 컴퓨터에 저장 ✦ 빠르게 확인하고 나중에 온라인 전환" },
-              { label: "간편하게 인터넷에 공개", dimLabel: "2. 화면과 데이터 기능을 한 번에 공개" },
-              { label: "검색 노출 중심으로 공개", dimLabel: "3. 검색 결과 노출과 첫 화면 속도 중심" },
-              { label: "여러 지역에서 안정적으로 운영", dimLabel: "4. 이용자와 가까운 지역에서 운영" },
-              { label: "회사 서버에서 직접 운영", dimLabel: "5. 회사가 보유한 운영 환경 사용" },
-            ] : [
-              { label: "내 컴퓨터에서 먼저 사용  ✦ 추천", dimLabel: "1. 내 컴퓨터에 저장 ✦ 빠르게 확인하고 나중에 온라인 전환" },
-              { label: "검색 노출 중심으로 공개", dimLabel: "2. 검색 결과 노출과 첫 화면 속도 중심" },
-              { label: "간편하게 인터넷에 공개  ✦ 추천", dimLabel: "3. 화면과 데이터 기능을 한 번에 공개" },
-              { label: "여러 지역에서 안정적으로 운영", dimLabel: "4. 이용자와 가까운 지역에서 운영" },
-              { label: "큰 규모의 회사 서비스", dimLabel: "5. 많은 사용자를 위한 회사용 환경" },
-              { label: "회사 서버에서 직접 운영", dimLabel: "6. 회사가 보유한 서버에서 직접 관리" },
-            ];
-            const answers = isPostStack
-              ? ["1", "2", "3", "4", "5"]
-              : ["local", "vercel", "railway", "fly", "aws", "vps"];
-            exitWorkInput();
+            const deployItems = deployChoices(isPostStack ? "post-stack" : "standalone");
+            workSession.unlockInput();
             console.log("\n  " + chalk.bold("서비스를 어디에서 사용할까요?") + chalk.dim("  ↑↓ 선택 · Enter 확인"));
             const idx = await showSelector(deployItems);
-            enterWorkInput();
-            if (idx >= 0) autoReply = answers[idx];
+            workSession.lockInput();
+            if (idx >= 0) autoReply = deployItems[idx].answer;
             break;
           }
           // 스택 선택 질문 → 방향키 셀렉터로 인터셉트
@@ -1126,23 +646,23 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
               { label: "알아서 선택", dimLabel: "5. 알아서 선택 — 요청 내용 보고 적합한 스택으로" },
             ];
             const answers = hasExisting ? ["0", "1", "2", "3", "4", "5"] : ["1", "2", "3", "4", "5"];
-            exitWorkInput();
+            workSession.unlockInput();
             console.log("\n  " + chalk.bold("어떤 종류의 서비스로 만들까요?") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
             const idx = await showSelector(stackItems);
-            enterWorkInput();
+            workSession.lockInput();
             if (idx >= 0) autoReply = answers[idx];
             break;
           }
           // 디자인시스템 선택 질문 → 방향키 셀렉터로 인터셉트
           if (/디자인 시스템을 선택해 주세요/.test(event.content)) {
             const dsItems = [
-              { label: "BCAVE  ✦ 자사 브랜드 기본", dimLabel: "1. BCAVE ✦ 기본/공식 — 자사 브랜드 · 모노톤 슬레이트 · PPT 표지 문법" },
+              { label: "BCAVE  ✦ 자사 브랜드 기본", dimLabel: "1. BCAVE ✦ 기본/공식 — 자사 브랜드 · 모노톤 슬레이트" },
               { label: "AXIS", dimLabel: "2. AXIS — 밝은 코발트 · 모던 프로페셔널" },
             ];
-            exitWorkInput();
+            workSession.unlockInput();
             console.log("\n  " + chalk.bold("디자인 시스템 선택") + chalk.dim("  (↑↓ 방향키·Enter · ESC 취소)"));
             const idx = await showSelector(dsItems);
-            enterWorkInput();
+            workSession.lockInput();
             if (idx >= 0) autoReply = String(idx + 1);
             break;
           }
@@ -1170,7 +690,7 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
           const req = event.request;
           // ⚡ 라인은 tool_start 에서 이미 표시됨 — 여기선 승인만.
           // 승인 선택 동안은 정상 입력 복원 (방향키 셀렉터 동작)
-          exitWorkInput();
+          workSession.unlockInput();
           if (mode === "auto-approve") {
             const answer = await askYesAlwaysNo();
             if (answer === "no") cm!.rejectToolCall(req.id);
@@ -1180,7 +700,7 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
             if (approved) cm!.approveToolCall(req.id);
             else cm!.rejectToolCall(req.id);
           }
-          enterWorkInput();
+          workSession.lockInput();
           break;
         }
 
@@ -1205,28 +725,24 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
           break;
       }
 
-      if (!aborted && event.type !== "done") startSpinner();
+      if (!workSession.aborted && event.type !== "done") workSession.startSpinner();
     } // end for-await
 
     // for-await 가 끝난 뒤 autoReply 가 있으면 새 턴 실행
-    if (autoReply && !aborted) {
+    if (autoReply && !workSession.aborted) {
       const reply = autoReply;
       autoReply = "";
       console.log("  " + chalk.dim(`↳ 선택: ${reply}`));
-      gen = cm!.run(reply, abortController?.signal);
-      startSpinner();
+      gen = cm!.run(reply, workSession.signal);
+      workSession.startSpinner();
       continue; // while 재시작
     }
     break; // autoReply 없음 → 정상 종료
     } // end while outer
   } finally {
-    stopSpinner();
-    exitWorkInput();
-    processing = false;
+    elapsedMs = workSession.finish();
   }
-  const elapsedMs = runStartMs ? Date.now() - runStartMs : 0;
-  runStartMs = 0;
-  if (aborted) {
+  if (workSession.aborted) {
     console.log(
       "  " + chalk.yellow("■ 중지했습니다.") + (elapsedMs ? chalk.dim(` · ${fmtDuration(elapsedMs)} 작업`) : ""),
     );
@@ -1269,8 +785,8 @@ async function handleInput(text: string): Promise<void> {
   }
 
 
-  abortController = new AbortController();
-  let gen = cm.run(trimmed, abortController.signal);
+  workSession.begin();
+  const gen = cm.run(trimmed, workSession.signal);
   await processAgentEvents(gen);
   persistSession(trimmed);
   prompt();
@@ -1315,6 +831,20 @@ const LOGO = [
 ];
 
 async function main(): Promise<void> {
+  if (subcommand === "doctor") {
+    const checks = collectDoctorChecks();
+    console.log("\n  " + chalk.bold.cyan("BCave Doctor") + "\n");
+    for (const check of checks) {
+      const mark = check.ok ? chalk.green("✓") : chalk.yellow("!");
+      const code = check.code ? chalk.dim(` · ${check.code}`) : "";
+      console.log(`  ${mark} ${check.label}: ${check.detail}${code}`);
+    }
+    const exitCode = doctorExitCode(checks);
+    console.log(exitCode === 0
+      ? chalk.green("\n  모든 필수 검사를 통과했습니다.\n")
+      : chalk.yellow("\n  문제가 발견됐습니다. 표시된 진단 코드를 확인하세요.\n"));
+    process.exit(exitCode);
+  }
   if (subcommand === "design") {
     const [action, value] = designArgs;
     if (action === "use") {
@@ -1380,7 +910,7 @@ async function main(): Promise<void> {
   const who = isLoggedIn(config) ? `  ·  ${config.userName || config.userEmail}` : "";
   const modelLabel = config.autoRoute ? `자동(${config.modelHeavy} · ${config.modelLight})` : config.model;
 
-  console.log("  " + chalk.dim(`v0.1.0  ·  ${modelLabel}  ·  ${safeCwd()}${who}`));
+  console.log("  " + chalk.dim(`v${BCAVE_VERSION}  ·  ${modelLabel}  ·  ${safeCwd()}${who}`));
   console.log("  " + chalk.dim("Shift+Tab 모드 전환  ·  ESC 입력 전체 지우기  ·  /help 명령어  ·  Ctrl+C 종료"));
   console.log("");
 
@@ -1397,7 +927,7 @@ async function main(): Promise<void> {
   }
 
   // 새 버전 알림 (설치본 vs GitHub 최신)
-  if (checkForUpdate()) {
+  if (hasRemoteUpdate()) {
     console.log("  " + chalk.yellow("● 새 버전이 있습니다.") + chalk.dim("   bcave update  로 업데이트하세요."));
     console.log("");
   }

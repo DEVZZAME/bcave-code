@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { auditApiContracts, auditUiSource, ConversationManager, pptxPackageIssues, validateApiResponse } from "../conversation.js";
+import { auditApiContracts, auditUiSource, ConversationManager, validateApiResponse } from "../conversation.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { PermissionManager } from "../permissions.js";
 
 const config = {
@@ -43,22 +42,6 @@ async function reachAppModel(cm: ConversationManager, request: string, deploy = 
 }
 
 describe("ConversationManager", () => {
-  it("rejects a PPTX with orphan slide XML files and an empty slide registry", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-empty-slide-registry-"));
-    fs.mkdirSync(path.join(root, "src", "ppt", "slides"), { recursive: true });
-    fs.mkdirSync(path.join(root, "src", "ppt", "_rels"), { recursive: true });
-    fs.writeFileSync(path.join(root, "src", "[Content_Types].xml"), "<Types/>");
-    fs.writeFileSync(path.join(root, "src", "ppt", "presentation.xml"), '<p:presentation xmlns:p="p"><p:sldIdLst/></p:presentation>');
-    fs.writeFileSync(path.join(root, "src", "ppt", "_rels", "presentation.xml.rels"), "<Relationships/>");
-    fs.writeFileSync(path.join(root, "src", "ppt", "slides", "slide1.xml"), '<p:sld xmlns:p="p"/>');
-    const out = path.join(root, "empty.pptx");
-    expect(spawnSync("zip", ["-qr", out, "[Content_Types].xml", "ppt"], { cwd: path.join(root, "src") }).status).toBe(0);
-    const issues = pptxPackageIssues(out);
-    expect(issues).toHaveLength(1);
-    expect(issues[0]).toContain("등록된 슬라이드가 0장");
-    expect(issues[0]).toContain("미등록 slide XML 1개");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
   it("can be instantiated", () => {
     const pm = new PermissionManager("yolo");
     const cm = new ConversationManager(
@@ -120,82 +103,6 @@ describe("ConversationManager", () => {
       message.role === "assistant" && String(message.content).includes("디자인 시스템을 선택"),
     )).toBe(false);
     await run.return(undefined);
-  });
-
-  it("routes a report PowerPoint request to PPTX instead of the dashboard HTML flow", async () => {
-    const template = path.join(os.tmpdir(), `team-template-${Date.now()}.pptx`);
-    fs.writeFileSync(template, "PK");
-    const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd(), template);
-    const run = cm.run("보고서.md 내용으로 피피티 만들어줘");
-    expect((await run.next()).value).toMatchObject({ type: "model" });
-    expect(cm.getHistory().some((message) =>
-      message.role === "system" && String(message.content).startsWith("[PRESENTATION_CONTEXT]"),
-    )).toBe(true);
-    const presentationContext = cm.getHistory().find((message) =>
-      message.role === "system" && String(message.content).startsWith("[PRESENTATION_CONTEXT]"),
-    );
-    expect(String(presentationContext?.content)).toContain(template);
-    expect(String(presentationContext?.content)).toContain(path.join(process.cwd(), "보고서.pptx"));
-    expect(String(presentationContext?.content)).toContain("_v2, _final, _verified 같은 별도 PPTX를 만들지 말고");
-    expect(String(presentationContext?.content)).toContain("python-pptx와 xml.etree는 사용하지 않는다");
-    expect(String(presentationContext?.content)).toContain("Python 3+lxml");
-    expect(String(presentationContext?.content)).toContain("선택 가능한 레이아웃 라이브러리");
-    expect(String(presentationContext?.content)).toContain("같은 페이지를 여러 번 복제");
-    expect(String(presentationContext?.content)).toContain("꼭 필요한 경우에만 기존 텍스트박스의 폭·높이를 조정");
-    expect(String(presentationContext?.content)).toContain("gridSpan/hMerge");
-    expect(String(presentationContext?.content)).toContain("현재 세션 템플릿의 실제 페이지 복제본");
-    expect(String(presentationContext?.content)).toContain("최종 위치에는 완성된 .pptx 파일 하나만");
-    expect(String(presentationContext?.content)).toContain("add_textbox/add_shape");
-    await run.return(undefined);
-    fs.rmSync(template, { force: true });
-  });
-
-  it("asks for a template when no CLI, config, or working-directory PPTX exists", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-no-ppt-template-"));
-    const cm = new ConversationManager({ ...config, pptTemplatePath: "" }, new PermissionManager("yolo"), dir);
-    const run = cm.run("보고서로 피피티 만들어줘");
-    expect((await run.next()).value).toMatchObject({ type: "text", content: expect.stringContaining("템플릿") });
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("auto-detects a template beside an absolute source document", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-ppt-cwd-"));
-    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-ppt-source-"));
-    const source = path.join(sourceDir, "보고서.md");
-    const template = path.join(sourceDir, "team_template.pptx");
-    fs.writeFileSync(source, "# 보고서");
-    fs.writeFileSync(template, "PK");
-    const cm = new ConversationManager({ ...config, pptTemplatePath: "" }, new PermissionManager("yolo"), cwd);
-    const run = cm.run(`${source} 이걸로 피피티 만들어줘`);
-    expect((await run.next()).value).toMatchObject({ type: "model" });
-    expect(cm.getHistory().some((message) => message.role === "system" && String(message.content).includes(template))).toBe(true);
-    await run.return(undefined);
-    fs.rmSync(cwd, { recursive: true, force: true });
-    fs.rmSync(sourceDir, { recursive: true, force: true });
-  });
-
-  it("accepts a template path embedded in a full sentence", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-ppt-explicit-"));
-    const template = path.join(dir, "bcave_ppt_template.pptx");
-    fs.writeFileSync(template, "PK");
-    const cm = new ConversationManager({ ...config, pptTemplatePath: "" }, new PermissionManager("yolo"), dir);
-    const run = cm.run(`보고서.md로 피피티 만들어줘. 템플릿은 ${template} 이거야`);
-    expect((await run.next()).value).toMatchObject({ type: "model" });
-    expect(cm.getHistory().some((message) => message.role === "system" && String(message.content).includes(template))).toBe(true);
-    await run.return(undefined);
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("clears a pending template question when the next request is a dashboard", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-ppt-cancel-"));
-    const cm = new ConversationManager({ ...config, pptTemplatePath: "" }, new PermissionManager("yolo"), dir);
-    const ask = cm.run("보고서.md로 피피티 만들어줘");
-    expect((await ask.next()).value).toMatchObject({ type: "text", content: expect.stringContaining("템플릿") });
-    await ask.return(undefined);
-    const dashboard = cm.run("매출.xlsx로 대시보드 만들어줘");
-    expect((await dashboard.next()).value).toMatchObject({ type: "text", content: expect.stringContaining("디자인 시스템") });
-    await dashboard.return(undefined);
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("does not let a stale design choice intercept a port troubleshooting request", async () => {
