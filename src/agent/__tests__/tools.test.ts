@@ -52,10 +52,12 @@ describe("Tools", () => {
     expect(isDevServerCommand("npx vite --host 0.0.0.0")).toBe(true);
     expect(isDevServerCommand("npm run build")).toBe(false);
     expect(isDevServerCommand("npm test")).toBe(false);
+    expect(isDevServerCommand("lsof -nP -iTCP | rg 'node|vite|tsx'")).toBe(false);
+    expect(isDevServerCommand("cat /tmp/server.log | grep vite")).toBe(false);
   });
 
   it("uses the actual fallback frontend port and ignores an occupied port", () => {
-    const logs = "Port 5173 is in use, trying another one...\nLocal: http://localhost:5174/\nAPI on 3001";
+    const logs = "Port 5173 is in use, trying another one...\nLocal: http://localhost:\u001b[1m5174\u001b[22m/\nAPI on 3001";
     expect(extractServerPorts(logs)).toEqual([5174, 3001]);
   });
 

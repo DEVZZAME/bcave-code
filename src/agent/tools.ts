@@ -152,13 +152,21 @@ export function getToolCategory(name: string): PermissionCategory {
 
 /** 장기 실행 개발/프리뷰 서버 명령인지 판별한다. */
 export function isDevServerCommand(command: string): boolean {
-  return /(?:^|\s|\&\&|\|\|)\s*(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|dev:server|start:dev)\b/i.test(command) ||
-    /(?:^|\s)(?:npx\s+)?vite\b(?!\s+build)/i.test(command) ||
-    /\b(?:next|vite|ts-node|tsx|nodemon|pm2 start)\b.*(?:dev|start|watch|index\.ts|server\.ts|index\.js)/i.test(command);
+  // 실행 구간의 첫 명령만 인정한다. `lsof | rg 'vite|tsx'` 같은 조회 명령의
+  // 검색 문자열을 개발 서버 실행으로 오인하지 않는다.
+  const withoutQuotedSearchTerms = command.replace(/'[^']*'|"[^"]*"/g, "");
+  const start = String.raw`(?:^|[;&|()]\s*)(?:[A-Z_][A-Z0-9_]*=[^\s;&|()]+\s+)*`;
+  return new RegExp(start + String.raw`(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|dev:server|start:dev)\b`, "i").test(withoutQuotedSearchTerms) ||
+    new RegExp(start + String.raw`(?:npx\s+)?(?:vite\b(?!\s+build)|next\s+dev\b|tsx\s+(?:watch\s+)?[^;&|()]*(?:index|server)\.(?:ts|js)\b|nodemon\b|pm2\s+start\b)`, "i").test(withoutQuotedSearchTerms);
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 /** 새 프로세스의 명령/로그에 실제로 나타난 포트만 반환한다. */
 export function extractServerPorts(text: string): number[] {
+  text = stripAnsi(text);
   const found = new Set<number>();
   const unavailable = new Set<number>();
   for (const m of text.matchAll(/\bport\s+(\d{2,5})\s+is\s+(?:already\s+)?in\s+use\b/gi)) unavailable.add(+m[1]);
@@ -877,31 +885,40 @@ export async function executeTool(
           child.on("exit", (c) => { exited = c ?? 0; });
 
           const readLogs = () => { try { return fs.readFileSync(logPath, "utf8"); } catch { return ""; } };
-          const pingHost = (host: string, port: number, t = 1200) => new Promise<boolean>(res => {
-            const req = http.get({ host, port, path: "/", timeout: t }, r => { r.destroy(); res(true); });
-            req.on("error", () => res(false)); req.on("timeout", () => { req.destroy(); res(false); });
+          type Probe = { status: number; contentType: string };
+          const pingHost = (host: string, port: number, t = 1200) => new Promise<Probe | null>(res => {
+            const req = http.get({ host, port, path: "/", timeout: t }, r => {
+              const probe = { status: r.statusCode ?? 0, contentType: String(r.headers["content-type"] ?? "") };
+              r.destroy(); res(probe);
+            });
+            req.on("error", () => res(null)); req.on("timeout", () => { req.destroy(); res(null); });
           });
           // Vite는 환경에 따라 ::1(localhost)에만 바인딩될 수 있어 127.0.0.1만 검사하면 오탐한다.
           const ping = async (port: number) => await pingHost("localhost", port) || await pingHost("127.0.0.1", port);
+          const expectsFrontend = fs.existsSync(path.join(cwd, "vite.config.ts")) || fs.existsSync(path.join(cwd, "vite.config.js"));
           const deadline = Date.now() + 30_000;
           let livePorts: number[] = [];
+          let frontendPorts: number[] = [];
           let firstResponseAt = 0;
           while (Date.now() < deadline) {
             if (exited !== null && exited !== 0) break;
             const ports = extractServerPorts(`${cmd}\n${readLogs()}`);
-            const states = await Promise.all(ports.map(async (port) => ({ port, live: await ping(port) })));
-            livePorts = states.filter(({ live }) => live).map(({ port }) => port);
+            const states = await Promise.all(ports.map(async (port) => ({ port, probe: await ping(port) })));
+            livePorts = states.filter(({ probe }) => probe).map(({ port }) => port);
+            frontendPorts = states.filter(({ probe }) => probe && probe.status >= 200 && probe.status < 300 && /text\/html/i.test(probe.contentType)).map(({ port }) => port);
             // concurrently 같은 다중 서버 명령에서 첫 서버만 보고 너무 일찍 성공하지 않는다.
-            if (livePorts.length && !firstResponseAt) firstResponseAt = Date.now();
+            const ready = expectsFrontend ? frontendPorts.length > 0 : livePorts.length > 0;
+            if (ready && !firstResponseAt) firstResponseAt = Date.now();
             if (firstResponseAt && Date.now() - firstResponseAt >= 1500) break;
             await new Promise(r => setTimeout(r, 600));
           }
           const logText = readLogs();
           const tail = logText.slice(-2500).trim();
-          if (livePorts.length && exited === null) {
+          if (livePorts.length && (!expectsFrontend || frontendPorts.length) && exited === null) {
             // Vite가 포트 충돌로 5174 등에 올라가면 로그의 Local URL을 대표 URL로 삼는다.
-            const localPort = +(logText.match(/Local:\s+https?:\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/i)?.[1] || 0);
-            const primaryPort = livePorts.includes(localPort) ? localPort : livePorts[0];
+            const cleanLog = stripAnsi(logText);
+            const localPort = +(cleanLog.match(/Local:\s+https?:\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/i)?.[1] || 0);
+            const primaryPort = frontendPorts.includes(localPort) ? localPort : frontendPorts[0] ?? livePorts[0];
             const urls = [primaryPort, ...livePorts.filter(p => p !== primaryPort)].map(p => `http://localhost:${p}`);
             child.unref();
             await resolvePlaceholdersInDir(cwd);

@@ -10,7 +10,7 @@ import { executeTool, getToolCategory, isDevServerCommand } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel, classifyTask } from "./router.js";
-import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest, detectDeployTarget } from "./request-classification.js";
+import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest, isPresentationRequest, detectDeployTarget } from "./request-classification.js";
 import { designRules, designSystemDir, designSystemNames, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
 import { hubRefresh } from "../auth/hub.js";
 
@@ -72,11 +72,15 @@ function findFreePort(): Promise<number> {
 
 /** 해당 포트로 HTTP GET 이 어떤 응답이든 받으면 서버가 살아있다고 본다. */
 function httpPing(port: number, timeoutMs = 1500): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = http.get({ host: "127.0.0.1", port, path: "/", timeout: timeoutMs }, (res) => { res.destroy(); resolve(true); });
-    req.on("error", () => resolve(false));
-    req.on("timeout", () => { req.destroy(); resolve(false); });
+  const pingHost = (host: string) => new Promise<boolean>((resolve) => {
+    const req = http.get({ host, port, path: "/", timeout: timeoutMs }, (res) => { res.destroy(); resolve(true); });
+    req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); });
   });
+  return pingHost("localhost").then((ok) => ok ? true : pingHost("127.0.0.1"));
+}
+
+function cleanTerminalOutput(text: string): string {
+  return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 /** 실행 중 API 응답이 완료 조건을 만족하는지 판정한다. */
@@ -202,6 +206,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok
   const startCmd = detectStartCommand(cwd);
   if (!startCmd) return { ok: false, detail: "package.json에 dev/start/serve 서버 실행 스크립트가 없습니다.", startCmd: "" };
   const port = await findFreePort();
+  const expectsFrontend = fs.existsSync(path.join(cwd, "vite.config.ts")) || fs.existsSync(path.join(cwd, "vite.config.js"));
   const logs: string[] = [];
   const collect = (b: Buffer) => { logs.push(b.toString()); while (logs.join("").length > 20000) logs.shift(); };
   const child = spawn(startCmd, { cwd, shell: true, detached: true, env: { ...process.env, PORT: String(port), NODE_ENV: "development", BROWSER: "none" } });
@@ -222,7 +227,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok
 
   const candidates = (): number[] => {
     const set = new Set<number>([port]);
-    const text = logs.join("");
+    const text = cleanTerminalOutput(logs.join(""));
     for (const m of text.matchAll(/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)?:(\d{2,5})\b/g)) set.add(+m[1]);
     for (const m of text.matchAll(/port[\s:=]+(\d{2,5})/gi)) set.add(+m[1]);
     return [...set].filter((p) => p > 0 && p < 65536);
@@ -231,13 +236,17 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok
   const deadline = Date.now() + 35000; // 서버 기동(특히 Next dev)까지 넉넉히
   let up = false;
   let upPort = 0;
+  let frontendPort = 0;
   while (Date.now() < deadline) {
     if (signal?.aborted) break;
     if (exited !== null && exited !== 0) break; // 크래시로 종료
     const ports = candidates();
     const states = await Promise.all(ports.map(async (port) => ({ port, live: await httpPing(port) })));
     const firstLive = states.find(({ live }) => live);
-    if (firstLive) { up = true; upPort = firstLive.port; }
+    const cleanLogs = cleanTerminalOutput(logs.join(""));
+    const loggedFrontend = +(cleanLogs.match(/Local:\s+https?:\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/i)?.[1] || 0);
+    if (loggedFrontend && states.some((state) => state.port === loggedFrontend && state.live)) frontendPort = loggedFrontend;
+    if (firstLive && (!expectsFrontend || frontendPort)) { up = true; upPort = port; }
     if (up) break;
     await new Promise((r) => setTimeout(r, 700));
   }
@@ -246,7 +255,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok
     process.removeListener("exit", onExit);
     kill();
     const tail = logs.join("").slice(-4000).trim();
-    const reason = exited !== null && exited !== 0 ? `서버가 시작 직후 종료됨(exit ${exited})` : "제한 시간 내 HTTP 응답 없음(서버가 기동/바인딩 실패했거나 PORT 를 안 씀)";
+    const reason = exited !== null && exited !== 0 ? `서버가 시작 직후 종료됨(exit ${exited})` : expectsFrontend && !frontendPort ? "API 또는 프론트 화면이 함께 열리지 않음" : "제한 시간 내 HTTP 응답 없음(서버가 기동/바인딩 실패했거나 PORT 를 안 씀)";
     return { ok: false, detail: `[스모크 실패: ${reason}] 시작 명령: ${startCmd}\n서버는 반드시 process.env.PORT 를 사용해 바인딩해야 합니다.\n${tail || "(출력 없음)"}`, startCmd };
   }
 
@@ -281,7 +290,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok
     };
   }
 
-  return { ok: true, detail: `서버 기동 및 API 검증 완료 (포트 ${upPort})`, startCmd };
+  return { ok: true, detail: `서비스 화면 및 데이터 연결 확인 완료 (화면 ${frontendPort || upPort}, 데이터 ${upPort})`, startCmd };
 }
 
 export interface ToolCallRequest {
@@ -545,6 +554,10 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     // 실제 백엔드가 있는 애플리케이션/서비스 요청 → 단일 정적 HTML 플로우가 아니라 진짜 프로젝트로 만든다.
     const appBuild = isAppBuild(userMessage);
+    const presentationRequest = isPresentationRequest(userMessage);
+    const initialPresentations = new Set<string>((() => {
+      try { return fs.readdirSync(this.cwd).filter((name) => /\.pptx$/i.test(name)); } catch { return []; }
+    })());
     if (appBuild) this.applicationActive = true;
     // 최초 요청에 배포 환경 또는 SQLite가 명시되면 스택 선택 뒤 같은 질문을 반복하지 않는다.
     if (appBuild && !this.selectedDeployTarget) {
@@ -690,6 +703,14 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           "동일 축에는 동일 단위만 사용하고 고객 수 단위는 '명'이다. 완료 전 write_file 결과가 반드시 검토 통과여야 하며 실패/경고를 성공으로 간주하지 않는다. 완료 응답은 파일명과 검증 통과만 간결히 쓴다.",
       );
     }
+    if (presentationRequest) {
+      this.replaceSystemContext("[PRESENTATION_CONTEXT]",
+        "[PRESENTATION_CONTEXT]\n이 요청의 산출물은 PowerPoint 프레젠테이션(.pptx)이다. HTML, 대시보드, 웹페이지를 만들지 않는다. " +
+        "첨부/지정 문서의 내용을 요약·구조화하고 `/Users/bcave/Desktop/bcave_ppt_template.pptx`를 시각적 원본으로 사용한다. " +
+        "원본의 슬라이드 크기, 마스터, 색상, 글꼴, 로고, 여백, 제목/본문 위계를 유지한 새 PPTX를 현재 폴더에 만든다. " +
+        "필요하면 생성 스크립트(.js/.mjs/.py)를 작성하고 실행하되 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
+        "원문에 없는 사실을 채우지 말고, 완료 전 생성 파일의 존재와 ZIP/PPTX 형식을 검사한다.");
+    }
     if (appBuild || this.applicationActive) {
       const deployTarget = this.selectedDeployTarget || "local";
       const deployGuide = ConversationManager.deployStackGuide(deployTarget);
@@ -754,6 +775,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     let runtimeStartUrl = "";
     let runtimeStartFailure = "";
     let runtimeRepairRounds = 0;
+    let presentationRepairRounds = 0;
 
     try {
       while (true) {
@@ -778,15 +800,37 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           hasNoToolCalls;
         const modelIsTryingToReportRuntime = executionRequested &&
           hasNoToolCalls;
+        const modelIsTryingToFinishPresentation = presentationRequest && hasNoToolCalls;
         const modelIsTryingToFinishUnverifiedCode = codeTouched && hasNoToolCalls &&
           (verifyCmds.length > 0 || (this.applicationActive && this.config.autoVerify));
-        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact && !modelIsTryingToReportRuntime && !modelIsTryingToFinishUnverifiedCode) {
+        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact && !modelIsTryingToReportRuntime && !modelIsTryingToFinishPresentation && !modelIsTryingToFinishUnverifiedCode) {
           lastText = text;
           currentTextYielded = true;
           yield { type: "text", content: message.content as string };
         }
 
         if (!message.tool_calls || message.tool_calls.length === 0) {
+          if (presentationRequest && !signal?.aborted) {
+            const created = (() => {
+              try {
+                return fs.readdirSync(this.cwd).filter((name) => /\.pptx$/i.test(name) && !initialPresentations.has(name)).find((name) => {
+                  const bytes = fs.readFileSync(path.join(this.cwd, name));
+                  return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+                });
+              } catch { return undefined; }
+            })();
+            if (!created) {
+              if (presentationRepairRounds >= this.config.maxVerifyRounds) {
+                yield { type: "error", message: "PowerPoint 파일이 생성되지 않아 완료 처리하지 않았습니다." };
+                return;
+              }
+              presentationRepairRounds++;
+              this.messages.push({ role: "assistant", content: message.content ?? "" });
+              this.messages.push({ role: "user", content: "[완료 차단] 요청한 산출물은 PPTX입니다. HTML을 만들거나 설명만 하지 말고 BCAVE PPT 원본 양식을 사용해 현재 폴더에 새 .pptx 파일을 실제로 생성하고 형식을 확인하세요." });
+              lastText = "";
+              continue;
+            }
+          }
           // 실행 요청은 shell_exec가 실제 HTTP 응답을 확인한 경우에만 완료할 수 있다.
           if (executionRequested && !runtimeStartVerified && !signal?.aborted) {
             if (runtimeRepairRounds >= this.config.maxVerifyRounds) {
@@ -1037,7 +1081,9 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             this.permissions.approve(category);
           }
 
-          const result = await executeTool(name, args, this.cwd);
+          const result = presentationRequest && name === "write_file" && typeof args.path === "string" && /\.html?$/i.test(args.path)
+            ? "[차단됨] PowerPoint 요청에는 HTML/대시보드를 만들 수 없습니다. BCAVE PPT 원본 양식으로 .pptx를 생성하세요."
+            : await executeTool(name, args, this.cwd);
           if (name === "shell_exec" && isDevServerCommand(String(args.command ?? ""))) {
             runtimeStartAttempted = true;
             if (result.startsWith("[SERVER_STARTED]")) {

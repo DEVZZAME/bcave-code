@@ -95,6 +95,16 @@ describe("ConversationManager", () => {
     await run.return(undefined);
   });
 
+  it("routes a report PowerPoint request to PPTX instead of the dashboard HTML flow", async () => {
+    const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd());
+    const run = cm.run("보고서.md 내용으로 피피티 만들어줘");
+    expect((await run.next()).value).toMatchObject({ type: "model" });
+    expect(cm.getHistory().some((message) =>
+      message.role === "system" && String(message.content).startsWith("[PRESENTATION_CONTEXT]"),
+    )).toBe(true);
+    await run.return(undefined);
+  });
+
   it("does not let a stale design choice intercept a port troubleshooting request", async () => {
     const noDefault = { ...config, designSystem: "" };
     const cm = new ConversationManager(noDefault, new PermissionManager("yolo"), process.cwd());

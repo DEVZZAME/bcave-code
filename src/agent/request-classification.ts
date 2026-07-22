@@ -27,7 +27,13 @@ export function classifyUiSurface(message?: string): UiSurface {
  * 디자인시스템 제약은 대시보드/리포트와 서비스 맥락의 앱 UI에만 적용한다.
  */
 export function isDashboardArtifactRequest(message: string): boolean {
+  if (isPresentationRequest(message)) return false;
   return /(대시보드|dashboard|리포트|보고서|report|analytics\s*화면)/i.test(message);
+}
+
+/** PowerPoint/발표자료 요청은 보고서라는 단어가 있어도 HTML 대시보드가 아니다. */
+export function isPresentationRequest(message: string): boolean {
+  return /(피피티|파워포인트|프레젠테이션|발표\s*자료|슬라이드|\bpptx?\b|power\s*point)/i.test(message);
 }
 
 /** 배포 플랫폼이 메시지에 명시됐으면 그 이름을 반환. 없으면 null. */
