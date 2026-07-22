@@ -372,14 +372,16 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     // ─── 배포 옵션 선택 ───────────────────────────────────────────────────────
     // 새 앱 빌드 요청이면 배포 대상을 먼저 물어본다 (프로덕션 스택을 결정하기 위해).
     // 이미 선택됐거나, 메시지에 명시됐거나, 배포 선택 답변이면 건너뛴다.
-    // ─── 스택 선택: 새 앱 빌드 + 기존 스택 없을 때 먼저 물어본다 ────────────────
+    // ─── 스택 선택: 앱 빌드 요청이면 항상 먼저 물어본다 ──────────────────────────
+    // (디렉토리에 package.json이 남아있어도 건너뛰지 않음 — 이전 시도 파일과 혼동 방지)
     const hasExistingStack = (() => {
-      // package.json 이 있으면 기존 스택이 있다고 본다
       try { return fs.existsSync(path.join(this.cwd, "package.json")); } catch { return false; }
     })();
-    if (appBuild && !this.selectedStack && !hasExistingStack && !this.pendingStackChoice) {
+    if (appBuild && !this.selectedStack && !this.pendingStackChoice) {
+      const existingNote = hasExistingStack ? "  0. **현재 스택 유지** — 디렉토리의 기존 package.json 스택 그대로\n" : "";
       const q =
         "어떤 기술 스택으로 만들까요?\n\n" +
+        existingNote +
         "  1. **React + Vite + Express** ✦ 가장 유연, 빠른 시작 (추천)\n" +
         "  2. **Next.js 풀스택** ✦ SSR·SEO 필요한 서비스 추천 — App Router + API Routes\n" +
         "  3. **Vue 3 + Vite + Express** — Vue 선호 시\n" +
@@ -396,6 +398,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     if (this.pendingStackChoice) {
       const answer = userMessage.trim().toLowerCase();
       const stackMap: Record<string, string> = {
+        "0": "existing", 현재: "existing", 유지: "existing", 기존: "existing",
         "1": "react-vite-express", react: "react-vite-express", vite: "react-vite-express", express: "react-vite-express",
         "2": "nextjs", next: "nextjs", nextjs: "nextjs", "next.js": "nextjs",
         "3": "vue-vite-express", vue: "vue-vite-express",

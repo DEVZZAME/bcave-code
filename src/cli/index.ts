@@ -1009,21 +1009,21 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
           }
           // 스택 선택 질문 → 방향키 셀렉터로 인터셉트
           if (/어떤 기술 스택으로 만들까요/.test(event.content)) {
+            const hasExisting = event.content.includes("현재 스택 유지");
             const stackItems = [
+              ...(hasExisting ? [{ label: "현재 스택 유지", dimLabel: "0. 현재 스택 유지 — 디렉토리의 기존 package.json 스택 그대로" }] : []),
               { label: "React + Vite + Express  ✦ 추천", dimLabel: "1. React + Vite + Express ✦ 추천 — 가장 유연, 빠른 시작" },
               { label: "Next.js 풀스택  ✦ SSR·SEO 필요 시", dimLabel: "2. Next.js 풀스택 ✦ SSR — App Router + API Routes" },
               { label: "Vue 3 + Vite + Express", dimLabel: "3. Vue 3 + Vite + Express — Vue 선호 시" },
               { label: "React + Vite + Fastify", dimLabel: "4. React + Vite + Fastify — 고성능 API 필요 시" },
               { label: "알아서 선택", dimLabel: "5. 알아서 선택 — 요청 내용 보고 적합한 스택으로" },
             ];
+            const answers = hasExisting ? ["0", "1", "2", "3", "4", "5"] : ["1", "2", "3", "4", "5"];
             exitWorkInput();
             console.log("\n  " + chalk.bold("기술 스택 선택") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
             const idx = await showSelector(stackItems);
             enterWorkInput();
-            if (idx >= 0) {
-              const answers = ["1", "2", "3", "4", "5"];
-              autoReply = answers[idx];
-            }
+            if (idx >= 0) autoReply = answers[idx];
             break;
           }
           // 디자인시스템 선택 질문 → 방향키 셀렉터로 인터셉트
