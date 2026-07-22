@@ -343,28 +343,9 @@ COMPOSITION DISCIPLINE:
       this.selectedDesignSystem = requestedSystem;
       this.pendingDesignChoice = false;
     }
-    if (applicationUiRequest && hasDesignSystem(this.selectedDesignSystem)) {
-      const selected = this.selectedDesignSystem;
-      const assets = designSystemDir(selected);
-      const surface = classifyUiSurface(userMessage);
-      const surfaceRules = surface === "auth"
-        ? "[화면 성격: 인증]\n- 로그인/회원가입은 집중형 인증 레이아웃으로 만든다: 브랜드, 짧은 제목/안내, 필드, 주 CTA 1개, 필요한 보조 링크만 둔다.\n- topbar/sidebar, KPI, 차트, 통계 카드, 대시보드 grid, 마케팅 hero를 넣지 않는다. 폼을 여러 카드로 쪼개지 않는다."
-        : surface === "dashboard"
-          ? "[화면 성격: 대시보드]\n- 지표의 우선순위, KPI, 차트, 비교·추세, 필터를 중심으로 정보 밀도와 빠른 스캔을 최적화한다.\n" + designRules(selected)
-          : "[화면 성격: 업무 플랫폼]\n- 실제 작업 흐름을 중심으로 앱 셸, 페이지 제목, 주요 액션, 검색·필터·탭, 목록/테이블, 상세/폼, 상태와 피드백을 구성한다.\n- 사용자가 분석 화면을 요구하지 않았다면 KPI·차트·통계 카드·대시보드 grid를 넣지 않는다. 마케팅 hero를 넣지 않고 모든 섹션을 카드로 감싸지 않는다.";
-      this.setDesignSystemContext(selected,
-          `[이 서비스의 모든 웹 UI는 ${selected.toUpperCase()} 디자인 시스템을 반드시 사용한다. 대시보드에만 적용되는 선택 규칙이 아니다.]\n` +
-          `[UI_SURFACE:${surface}]\n${surfaceRules}\n` +
-          `\n\n[애플리케이션 적용 계약 — 위 RULES의 정적 HTML 출력 계약보다 이 항목이 우선한다.]\n` +
-          `- 대상: 로그인, 목록, 상세, 폼, 설정, 관리자 페이지 등 모든 화면과 공통 컴포넌트. API/DB 같은 비시각 코드만 제외한다.\n` +
-          `- 현재 프레임워크(React/Next/Vue 등), 라우팅, 컴포넌트 구조를 유지한다. TSX/JSX와 일반 코드 파일은 write_file의 content 필드로 작성한다. body/app_script/design_system 필드는 단일 HTML 산출물에만 쓴다.\n` +
-          `- 원본 자산은 ${assets}/${selected}-tokens.css 와 ${assets}/${selected}-ui.css 이다. UI를 쓰기 전에 두 파일을 읽고, 프로젝트 내부의 공용 스타일 위치로 그대로 복사해 전역에서 한 번 import한다. 이미 복사되어 있으면 중복 생성하지 말고 기존 파일을 재사용한다.\n` +
-          `- JSX에서는 제공 마크업의 class를 className으로 변환해 사용한다. 제공된 토큰·클래스·컴포넌트 패턴을 우선하며 별도 색상 팔레트, 임의 hex/rgb, gradient, 임의 그림자·radius, Tailwind arbitrary value로 자체 디자인 시스템을 만들지 않는다.\n` +
-          `- 필요한 클래스가 없으면 먼저 원본 ui.css의 기존 조합으로 해결한다. 정말 필요한 앱 전용 레이아웃 CSS만 별도 파일에 최소 추가하고, 색상·타이포·간격·radius 값은 반드시 ${selected}-tokens.css 변수만 참조한다.\n` +
-          `- 기존 화면을 수정할 때도 해당 화면만 독자적인 스타일로 남기지 말고 공통 ${selected.toUpperCase()} 셸, 내비게이션, 버튼, 폼, 테이블 패턴에 맞춘다. 완료 전 변경된 모든 UI 파일이 이 계약을 따르는지 점검한다.\n` +
-          `- 다른 디자인 시스템과 혼용하지 않는다. 프로젝트에서 ${selected.toUpperCase()}가 아닌 디자인 시스템의 CSS import, 자산, 전역 클래스가 발견되면 현재 ${selected.toUpperCase()} 자산으로 교체하고 이전 시스템 참조를 제거한다.`,
-      );
-    }
+    // 앱/서비스 빌드는 디자인시스템 파이프라인을 적용하지 않는다.
+    // 모델이 design_system 필드를 write_file에 넣으면 body/app_script 강제 루프가 발생하므로
+    // 앱 빌드 시 setDesignSystemContext를 호출하지 않고 스타일은 자유롭게 구현한다.
     if (uiRequest && hasDesignSystem(this.selectedDesignSystem)) {
       const selected = this.selectedDesignSystem;
       this.setDesignSystemContext(selected,
