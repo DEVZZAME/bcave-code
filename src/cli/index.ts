@@ -251,6 +251,37 @@ const rl = readline.createInterface({
   terminal: true,
 });
 
+// ── 브라케티드 페이스트 모드 ────────────────────────────────────────────────
+// 붙여넣기 시 \n 이 Enter 로 해석되어 즉시 전송되는 문제를 방지한다.
+// 터미널에 \x1b[?2004h 를 보내면 붙여넣기 구간을 \x1b[200~ ... \x1b[201~ 로 감싸 전달한다.
+// readline._normalWrite 를 패치해 구간 내 \r/\n 을 공백으로 치환한 뒤 한 번에 전달한다.
+if (process.stdout.isTTY) {
+  process.stdout.write("\x1b[?2004h"); // 브라케티드 페이스트 활성화
+  process.on("exit", () => { try { process.stdout.write("\x1b[?2004l"); } catch { /* noop */ } });
+}
+let _isPasting = false;
+let _pasteAccum = "";
+const _rlAny = rl as unknown as { _normalWrite?: (b: Buffer) => void };
+const _origWrite = _rlAny._normalWrite?.bind(rl);
+if (_origWrite) {
+  _rlAny._normalWrite = (buf: Buffer) => {
+    const s = buf.toString("utf8");
+    if (s === "\x1b[200~") { _isPasting = true; _pasteAccum = ""; return; }
+    if (s === "\x1b[201~") {
+      _isPasting = false;
+      if (_pasteAccum) _origWrite(Buffer.from(_pasteAccum, "utf8"));
+      _pasteAccum = "";
+      return;
+    }
+    if (_isPasting) {
+      // 줄바꿈(\r\n, \n, \r) → 공백으로 치환해 Enter 로 해석되지 않게
+      _pasteAccum += s.replace(/\r\n|\r|\n/g, " ");
+      return;
+    }
+    _origWrite(buf);
+  };
+}
+
 // Shift+Tab: mode cycle
 process.stdin.on("keypress", (_str: string, key: readline.Key) => {
   if (selectorActive || authInputActive || processing) return;
