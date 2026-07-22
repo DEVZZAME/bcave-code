@@ -44,12 +44,12 @@ const DEFAULT_CONFIG: BcaveConfig = {
   // 설정하면 LLM 요청이 bcave-service-hub 대신 로컬로 간다. 비우면 기존 HUB 경유.
   llmUrl: "http://127.0.0.1:4000/v1",
 
-  // 기본 모델: qwen3-coder (Qwen3-Coder-30B-A3B, Ollama 로컬 서빙)
+  // 기본 모델: gpt-5.6-luna
   // 롤백: /model gpt-5.4-mini + /llm-url "" 으로 HUB 경유 복구
-  model: "qwen3-coder",
+  model: "gpt-5.6-luna",
   autoRoute: false,
-  modelHeavy: "qwen3-coder",
-  modelLight: "qwen3-coder",
+  modelHeavy: "gpt-5.6-luna",
+  modelLight: "gpt-5.6-luna",
   // 품질 강화 기본 on: 코드 수정 후 자동 검증(감지된 build/typecheck)로 스스로 오류를 고침.
   autoVerify: true,
   verifyCmds: [],

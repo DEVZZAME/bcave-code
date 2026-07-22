@@ -264,11 +264,7 @@ COMPOSITION DISCIPLINE:
    * tool_call/tool_result 쌍이 깨지지 않도록 반드시 user 메시지 경계에서 자른다.
    */
   private trimHistory(): void {
-    // qwen3-coder: 131K 토큰 네이티브 컨텍스트 → 문자 수 기준 약 50만 자까지 허용
-    // gpt-5.4-mini: ~16K 토큰 → 기존 25만 자 유지
-    // 모델 식별: config.model 에서 qwen 포함 여부로 판별
-    const isQwen = /qwen/i.test(this.config.model);
-    const BUDGET = isQwen ? 500_000 : 250_000; // 문자 수 — 모델 한도보다 훨씬 아래로 유지
+    const BUDGET = 250_000; // 문자 수 (~6만 토큰) — 모델 한도보다 훨씬 아래로 유지
     const msgs = this.messages;
     if (msgs.length <= 2) return;
     const size = (m: ChatCompletionMessageParam): number => JSON.stringify(m).length;
