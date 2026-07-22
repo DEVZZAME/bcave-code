@@ -100,9 +100,9 @@ function cycleMode(): void {
 const COMMANDS = [
   { name: "/resume", desc: "이전 세션 다시 열기" },
   { name: "/model", desc: "모델 선택 (gpt-5.6-luna 기본 · auto 용도별 라우팅)" },
-  { name: "/deploy", desc: "배포 환경 재선택 (방향키 셀렉터)" },
-  { name: "/verify", desc: "코드 수정 후 자동 검증-수정 루프 on/off" },
-  { name: "/smoke", desc: "앱 생성 후 서버 띄워 헬스체크 on/off" },
+  { name: "/deploy", desc: "서비스를 사용할 장소 선택" },
+  { name: "/verify", desc: "완료 전 오류 자동 확인 on/off" },
+  { name: "/smoke", desc: "완성된 서비스 실제 실행 확인 on/off" },
   { name: "/usage", desc: "사용량/한도 확인" },
   { name: "/login", desc: "사내 계정 로그인" },
   { name: "/logout", desc: "로그아웃" },
@@ -432,17 +432,31 @@ function toolResultLine(name: string, result: string): string | null {
   }
   if (name === "shell_exec") {
     if (r.startsWith("[SERVER_START_FAILED]")) {
-      const detail = r.replace(/^\[SERVER_START_FAILED\]\s*/, "").split("\n")[0];
-      return chalk.red("    ✗ 실행 실패") + chalk.dim(detail ? " · " + detail : "");
+      return chalk.red("    ✗ 서비스가 아직 열리지 않습니다") + chalk.dim(" · 원인을 확인하고 다시 시도합니다");
     }
     if (r.startsWith("[SERVER_STARTED]")) {
       const url = r.match(/https?:\/\/[^\s]+/)?.[0];
-      return chalk.green("    ✓ 서버 응답 확인") + chalk.dim(url ? " · " + url : "");
+      return chalk.green("    ✓ 서비스 화면이 정상적으로 열립니다") + chalk.dim(url ? " · " + url : "");
     }
     const firstOut = r.split("\n").map((s) => s.trim()).find(Boolean);
     return chalk.dim("    ✓ 완료" + (firstOut ? " · " + (firstOut.length > 80 ? firstOut.slice(0, 80) + "…" : firstOut) : ""));
   }
   return null; // read_file/list_files/search_files 성공은 표시하지 않음(⚡ 라인으로 충분)
+}
+
+function friendlyVerifyLabel(cmd: string): string {
+  if (/스키마|DB/i.test(cmd)) return "입력한 내용이 저장되는지 확인";
+  if (/proxy|API/i.test(cmd)) return "화면과 데이터가 연결되는지 확인";
+  if (/서버|스모크|health/i.test(cmd)) return "서비스가 실제로 열리는지 확인";
+  return "코드 오류 확인";
+}
+
+function friendlyErrorMessage(message: string): string {
+  if (/서버 실행|서비스 실행|SERVER_START|HTTP 응답/i.test(message)) return "서비스가 아직 정상적으로 열리지 않습니다. 원인을 확인했지만 자동으로 해결하지 못했습니다.";
+  if (/DB 스키마|schema|INSERT/i.test(message)) return "입력한 내용을 저장하는 기능에 문제가 남아 있어 완료하지 않았습니다.";
+  if (/Vite|proxy|API 검증/i.test(message)) return "화면과 데이터 연결에 문제가 남아 있어 완료하지 않았습니다.";
+  if (/빌드|타입|검증에 실패/i.test(message)) return "코드 오류가 남아 있어 완료하지 않았습니다.";
+  return message;
 }
 
 // ─── 작업 중 스피너 / 입력 차단 / ESC 취소 ───────────────
@@ -981,9 +995,9 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       saveConfig({ autoVerify: arg === "on" });
       config = loadConfig();
       rebuildCM();
-      console.log(chalk.green(`  ✓ 자동 검증-수정 ${arg === "on" ? "ON" : "OFF"}`) + chalk.dim("  (코드 수정 후 build/typecheck 자동 실행·자가수정)"));
+      console.log(chalk.green(`  ✓ 완료 전 오류 자동 확인 ${arg === "on" ? "ON" : "OFF"}`));
     } else {
-      console.log("  " + chalk.dim(`자동 검증-수정: ${config.autoVerify ? "ON" : "OFF"}  ·  /verify on|off 로 전환`));
+      console.log("  " + chalk.dim(`완료 전 오류 자동 확인: ${config.autoVerify ? "ON" : "OFF"}  ·  /verify on|off 로 전환`));
     }
     return true;
   }
@@ -992,15 +1006,15 @@ async function handleSlashCommand(text: string): Promise<boolean> {
 
   if (trimmed === "/deploy") {
     const deployItems = [
-      { label: "Vercel  ✦ 프론트 중심 추천", dimLabel: "1. Vercel ✦ 프론트 중심 추천 — Next.js + PostgreSQL(Neon)" },
-      { label: "Railway ✦ 빠른 풀스택 추천", dimLabel: "2. Railway ✦ 빠른 풀스택 추천 — Node.js+Express+PostgreSQL" },
-      { label: "Fly.io", dimLabel: "3. Fly.io — Docker + PostgreSQL, 리전 선택 가능" },
-      { label: "AWS / ECS  ✦ 대규모·엔터프라이즈", dimLabel: "4. AWS / ECS ✦ 대규모 — EC2/Fargate + RDS" },
-      { label: "VPS / 자체 서버  ✦ 고정비용·완전제어", dimLabel: "5. VPS ✦ 고정비용 — Ubuntu + Nginx + Docker Compose" },
-      { label: "SQLite 로컬 빠른 검증", dimLabel: "6. SQLite ✦ 즉시 실행·기능 검증 — better-sqlite3, 나중에 배포 DB 결정" },
+      { label: "검색 노출 중심으로 공개", dimLabel: "1. 검색 노출 중심으로 인터넷에 공개 (Vercel)" },
+      { label: "간편하게 인터넷에 공개  ✦ 추천", dimLabel: "2. 화면과 데이터 기능을 한 번에 공개 (Railway)" },
+      { label: "여러 지역에서 안정적으로 운영", dimLabel: "3. 이용자와 가까운 지역에서 운영 (Fly.io)" },
+      { label: "큰 규모의 회사 서비스", dimLabel: "4. 많은 사용자를 위한 회사용 운영 환경 (AWS)" },
+      { label: "회사 서버에서 직접 운영", dimLabel: "5. 보유한 서버에서 직접 관리" },
+      { label: "내 컴퓨터에서 먼저 사용", dimLabel: "6. 내 컴퓨터에 저장 ✦ 빠르게 확인하고 나중에 온라인 전환" },
     ];
     const answers = ["vercel", "railway", "fly", "aws", "vps", "local"];
-    console.log("\n  " + chalk.bold("배포 환경 재선택") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
+    console.log("\n  " + chalk.bold("서비스를 어디에서 사용할까요?") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
     const idx = await showSelector(deployItems);
     if (idx >= 0) {
       const chosen = answers[idx];
@@ -1018,9 +1032,9 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       saveConfig({ smokeTest: arg === "on" });
       config = loadConfig();
       rebuildCM();
-      console.log(chalk.green(`  ✓ 앱 스모크 테스트 ${arg === "on" ? "ON" : "OFF"}`) + chalk.dim("  (앱 생성 후 서버 띄워 HTTP 응답 확인)"));
+      console.log(chalk.green(`  ✓ 완성된 서비스 실제 실행 확인 ${arg === "on" ? "ON" : "OFF"}`));
     } else {
-      console.log("  " + chalk.dim(`앱 스모크 테스트: ${config.smokeTest ? "ON" : "OFF"}  ·  /smoke on|off 로 전환`));
+      console.log("  " + chalk.dim(`완성된 서비스 실제 실행 확인: ${config.smokeTest ? "ON" : "OFF"}  ·  /smoke on|off 로 전환`));
     }
     return true;
   }
@@ -1067,47 +1081,47 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
         }
         case "text": {
           // 배포 환경 선택 질문 → 방향키 셀렉터로 인터셉트
-          if (/어디에 배포할 예정인가요|어떤 환경에 배포할 예정인가요/.test(event.content)) {
+          if (/어디에 배포할 예정인가요|어떤 환경에 배포할 예정인가요|서비스를 어디에서 사용할까요/.test(event.content)) {
             // 스택 직후 배포 질문(5개) vs 독립 배포 질문(6개) 구분
-            const isPostStack = /DB 종류/.test(event.content);
+            const isPostStack = /DB 종류|내 컴퓨터에서 먼저 사용/.test(event.content);
             const deployItems = isPostStack ? [
-              { label: "Railway  ✦ 빠른 배포 추천", dimLabel: "1. Railway ✦ 추천 — PostgreSQL 내장, 설정 최소" },
-              { label: "Vercel  ✦ Next.js 풀스택 추천", dimLabel: "2. Vercel ✦ Next.js — PostgreSQL(Neon/Supabase)" },
-              { label: "Fly.io", dimLabel: "3. Fly.io — Docker + PostgreSQL, 리전 선택" },
-              { label: "AWS / VPS  ✦ 완전 제어", dimLabel: "4. AWS / VPS ✦ 완전제어 — PostgreSQL" },
-              { label: "SQLite 로컬 빠른 검증", dimLabel: "5. SQLite ✦ 즉시 실행·기능 검증 — better-sqlite3 (배포 시 PostgreSQL 전환)" },
+              { label: "간편하게 인터넷에 공개  ✦ 추천", dimLabel: "1. 화면과 데이터 기능을 한 번에 공개" },
+              { label: "검색 노출 중심으로 공개", dimLabel: "2. 검색 결과 노출과 첫 화면 속도 중심" },
+              { label: "여러 지역에서 안정적으로 운영", dimLabel: "3. 이용자와 가까운 지역에서 운영" },
+              { label: "회사 서버에서 직접 운영", dimLabel: "4. 회사가 보유한 운영 환경 사용" },
+              { label: "내 컴퓨터에서 먼저 사용", dimLabel: "5. 내 컴퓨터에 저장 ✦ 빠르게 확인하고 나중에 온라인 전환" },
             ] : [
-              { label: "Vercel  ✦ 프론트 중심 추천", dimLabel: "1. Vercel ✦ 추천 — Next.js + PostgreSQL(Neon)" },
-              { label: "Railway ✦ 빠른 풀스택 추천", dimLabel: "2. Railway ✦ 추천 — Express + PostgreSQL 올인원" },
-              { label: "Fly.io", dimLabel: "3. Fly.io — Docker + PostgreSQL" },
-              { label: "AWS / ECS  ✦ 대규모", dimLabel: "4. AWS / ECS — EC2/Fargate + RDS" },
-              { label: "VPS / 자체 서버", dimLabel: "5. VPS — Ubuntu + Nginx + Docker Compose" },
-              { label: "SQLite 로컬 빠른 검증", dimLabel: "6. SQLite ✦ 즉시 실행·기능 검증 — better-sqlite3, 나중에 배포 DB 결정" },
+              { label: "검색 노출 중심으로 공개", dimLabel: "1. 검색 결과 노출과 첫 화면 속도 중심" },
+              { label: "간편하게 인터넷에 공개  ✦ 추천", dimLabel: "2. 화면과 데이터 기능을 한 번에 공개" },
+              { label: "여러 지역에서 안정적으로 운영", dimLabel: "3. 이용자와 가까운 지역에서 운영" },
+              { label: "큰 규모의 회사 서비스", dimLabel: "4. 많은 사용자를 위한 회사용 환경" },
+              { label: "회사 서버에서 직접 운영", dimLabel: "5. 회사가 보유한 서버에서 직접 관리" },
+              { label: "내 컴퓨터에서 먼저 사용", dimLabel: "6. 내 컴퓨터에 저장 ✦ 빠르게 확인하고 나중에 온라인 전환" },
             ];
             const answers = isPostStack
               ? ["1", "2", "3", "4", "5"]
               : ["vercel", "railway", "fly", "aws", "vps", "local"];
             exitWorkInput();
-            console.log("\n  " + chalk.bold("배포 환경 선택") + chalk.dim("  ↑↓ Enter · DB 종류가 결정됩니다"));
+            console.log("\n  " + chalk.bold("서비스를 어디에서 사용할까요?") + chalk.dim("  ↑↓ 선택 · Enter 확인"));
             const idx = await showSelector(deployItems);
             enterWorkInput();
             if (idx >= 0) autoReply = answers[idx];
             break;
           }
           // 스택 선택 질문 → 방향키 셀렉터로 인터셉트
-          if (/어떤 기술 스택으로 만들까요/.test(event.content)) {
-            const hasExisting = event.content.includes("현재 스택 유지");
+          if (/어떤 기술 스택으로 만들까요|어떤 종류의 서비스로 만들까요/.test(event.content)) {
+            const hasExisting = /현재 (?:스택|방식) 유지/.test(event.content);
             const stackItems = [
-              ...(hasExisting ? [{ label: "현재 스택 유지", dimLabel: "0. 현재 스택 유지 — 디렉토리의 기존 package.json 스택 그대로" }] : []),
-              { label: "React + Vite + Express  ✦ 추천", dimLabel: "1. React + Vite + Express ✦ 추천 — 가장 유연, 빠른 시작" },
-              { label: "Next.js 풀스택  ✦ SSR·SEO 필요 시", dimLabel: "2. Next.js 풀스택 ✦ SSR — App Router + API Routes" },
-              { label: "Vue 3 + Vite + Express", dimLabel: "3. Vue 3 + Vite + Express — Vue 선호 시" },
-              { label: "React + Vite + Fastify", dimLabel: "4. React + Vite + Fastify — 고성능 API 필요 시" },
+              ...(hasExisting ? [{ label: "현재 방식 유지", dimLabel: "0. 이미 만들어진 서비스 구조를 그대로 사용" }] : []),
+              { label: "일반적인 웹 서비스  ✦ 추천", dimLabel: "1. 일반적인 웹 서비스 ✦ 빠르고 유연하게 시작" },
+              { label: "검색에 잘 노출되는 서비스", dimLabel: "2. 검색 결과 노출과 첫 화면 속도가 중요한 서비스" },
+              { label: "Vue 방식으로 만들기", dimLabel: "3. 기존 작업이 Vue 기반일 때 선택" },
+              { label: "많은 요청을 처리하는 서비스", dimLabel: "4. 동시에 많은 사용자가 이용할 때 선택" },
               { label: "알아서 선택", dimLabel: "5. 알아서 선택 — 요청 내용 보고 적합한 스택으로" },
             ];
             const answers = hasExisting ? ["0", "1", "2", "3", "4", "5"] : ["1", "2", "3", "4", "5"];
             exitWorkInput();
-            console.log("\n  " + chalk.bold("기술 스택 선택") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
+            console.log("\n  " + chalk.bold("어떤 종류의 서비스로 만들까요?") + chalk.dim("  (↑↓ 방향키·Enter 선택 · ESC 취소)"));
             const idx = await showSelector(stackItems);
             enterWorkInput();
             if (idx >= 0) autoReply = answers[idx];
@@ -1139,9 +1153,10 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
 
         case "verify": {
           // 검증→자동수정 루프 진행 표시
-          if (event.status === "run") console.log("  " + chalk.cyan("🔧") + " " + chalk.dim(`자동 검증: ${event.cmd}`));
-          else if (event.status === "pass") console.log("  " + chalk.green("✓") + " " + chalk.dim("검증 통과"));
-          else console.log("  " + chalk.yellow("⚠") + " " + chalk.dim(`검증 실패 → 자동 수정 시도: ${event.cmd}`));
+          const label = friendlyVerifyLabel(event.cmd);
+          if (event.status === "run") console.log("  " + chalk.cyan("●") + " " + chalk.dim(`${label} 중`));
+          else if (event.status === "pass") console.log("  " + chalk.green("✓") + " " + chalk.dim(label));
+          else console.log("  " + chalk.yellow("↻") + " " + chalk.dim(`${label}에서 문제 발견 · 자동으로 수정 중`));
           break;
         }
 
@@ -1172,7 +1187,7 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
 
         case "error":
           console.log("");
-          console.log("  " + chalk.red("✗ " + event.message));
+          console.log("  " + chalk.red("✗ " + friendlyErrorMessage(event.message)));
           console.log("");
           break;
 

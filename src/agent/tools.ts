@@ -889,8 +889,8 @@ export async function executeTool(
           while (Date.now() < deadline) {
             if (exited !== null && exited !== 0) break;
             const ports = extractServerPorts(`${cmd}\n${readLogs()}`);
-            livePorts = [];
-            for (const p of ports) if (await ping(p)) livePorts.push(p);
+            const states = await Promise.all(ports.map(async (port) => ({ port, live: await ping(port) })));
+            livePorts = states.filter(({ live }) => live).map(({ port }) => port);
             // concurrently 같은 다중 서버 명령에서 첫 서버만 보고 너무 일찍 성공하지 않는다.
             if (livePorts.length && !firstResponseAt) firstResponseAt = Date.now();
             if (firstResponseAt && Date.now() - firstResponseAt >= 1500) break;

@@ -126,9 +126,10 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok
   while (Date.now() < deadline) {
     if (signal?.aborted) break;
     if (exited !== null && exited !== 0) break; // 크래시로 종료
-    for (const p of candidates()) {
-      if (await httpPing(p)) { up = true; upPort = p; break; }
-    }
+    const ports = candidates();
+    const states = await Promise.all(ports.map(async (port) => ({ port, live: await httpPing(port) })));
+    const firstLive = states.find(({ live }) => live);
+    if (firstLive) { up = true; upPort = firstLive.port; }
     if (up) break;
     await new Promise((r) => setTimeout(r, 700));
   }
@@ -441,15 +442,15 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
       try { return fs.existsSync(path.join(this.cwd, "package.json")); } catch { return false; }
     })();
     if (appBuild && !this.selectedStack && !this.pendingStackChoice) {
-      const existingNote = hasExistingStack ? "  0. **현재 스택 유지** — 디렉토리의 기존 package.json 스택 그대로\n" : "";
+      const existingNote = hasExistingStack ? "  0. **현재 방식 유지** — 이미 만들어진 서비스 구조를 그대로 사용\n" : "";
       const q =
-        "어떤 기술 스택으로 만들까요?\n\n" +
+        "어떤 종류의 서비스로 만들까요?\n\n" +
         existingNote +
-        "  1. **React + Vite + Express** ✦ 가장 유연, 빠른 시작 (추천)\n" +
-        "  2. **Next.js 풀스택** ✦ SSR·SEO 필요한 서비스 추천 — App Router + API Routes\n" +
-        "  3. **Vue 3 + Vite + Express** — Vue 선호 시\n" +
-        "  4. **React + Vite + Fastify** — 고성능 API 필요 시\n" +
-        "  5. **알아서 선택** — 요청 내용 보고 가장 적합한 스택으로\n\n" +
+        "  1. **일반적인 웹 서비스** ✦ 빠르고 유연하게 시작 (추천)\n" +
+        "  2. **검색에 잘 노출되는 서비스** — 검색 결과 노출이 중요할 때\n" +
+        "  3. **기존 Vue 방식 유지** — 기존 작업이 Vue일 때\n" +
+        "  4. **많은 요청을 처리하는 서비스** — 동시 사용자가 많을 때\n" +
+        "  5. **알아서 선택** — 요청에 가장 적합한 방식으로\n\n" +
         "번호나 이름으로 답해 주세요.";
       this.pendingStackChoice = true;
       this.messages.push({ role: "user", content: userMessage });
@@ -477,12 +478,12 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
       // SQLite는 로컬 전용이며 대부분 배포 환경에서 사용 불가.
       if (this.selectedStack !== "existing" && !this.selectedDeployTarget) {
         const dq =
-          "어디에 배포할 예정인가요? **DB 종류(SQLite vs PostgreSQL)가 여기서 결정됩니다.**\n\n" +
-          "  1. **Railway** ✦ 빠른 배포 추천 — PostgreSQL 내장, 설정 최소\n" +
-          "  2. **Vercel** ✦ Next.js 풀스택 추천 — PostgreSQL(Neon/Supabase)\n" +
-          "  3. **Fly.io** — Docker + PostgreSQL, 리전 선택\n" +
-          "  4. **AWS / VPS** — PostgreSQL, 완전 제어\n" +
-          "  5. **SQLite 로컬 빠른 검증** — better-sqlite3로 즉시 실행·검증 (배포 시 PostgreSQL 전환)\n\n" +
+          "서비스를 어디에서 사용할까요?\n\n" +
+          "  1. **간편하게 인터넷에 공개** ✦ 빠른 시작 추천\n" +
+          "  2. **검색 노출 중심으로 인터넷에 공개**\n" +
+          "  3. **여러 지역에서 안정적으로 운영**\n" +
+          "  4. **회사 서버에서 직접 운영**\n" +
+          "  5. **내 컴퓨터에서 먼저 사용** — 빠르게 확인하고 나중에 온라인 전환\n\n" +
           "번호로 답해 주세요.";
         this.pendingDeployChoice = true;
         this.messages.push({ role: "user", content: userMessage });
