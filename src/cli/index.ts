@@ -294,6 +294,18 @@ process.stdin.on("keypress", (_str: string, key: readline.Key) => {
     });
     return;
   }
+  // ESC: 현재 입력 전체 지우기 (작업 중 아닐 때)
+  // — 딜리트 키로 한 자씩 지우는 불편함을 해소
+  if (key && key.name === "escape") {
+    const rlAny = rl as unknown as { line: string; cursor: number; _refreshLine?: () => void };
+    if (rlAny.line && rlAny.line.length > 0) {
+      rlAny.line = "";
+      rlAny.cursor = 0;
+      process.stdout.write("\r\x1b[2K");
+      rlAny._refreshLine?.();
+    }
+    return;
+  }
 });
 
 // "/" typed → close current question, then open command selector
@@ -1340,7 +1352,7 @@ async function main(): Promise<void> {
   const modelLabel = config.autoRoute ? `자동(${config.modelHeavy} · ${config.modelLight})` : config.model;
 
   console.log("  " + chalk.dim(`v0.1.0  ·  ${modelLabel}  ·  ${safeCwd()}${who}`));
-  console.log("  " + chalk.dim("Shift+Tab 모드 전환  ·  /help 명령어  ·  Ctrl+C 종료"));
+  console.log("  " + chalk.dim("Shift+Tab 모드 전환  ·  ESC 입력 전체 지우기  ·  /help 명령어  ·  Ctrl+C 종료"));
   console.log("");
 
   // 서브커맨드 처리
