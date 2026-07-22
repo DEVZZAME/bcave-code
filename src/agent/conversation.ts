@@ -658,7 +658,48 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             }
             yield { type: "verify", status: "pass", cmd: verifyCmds.join(" && ") };
           }
-          // A-1.5) Vite 프록시 설정 검증: 프론트(Vite)와 백엔드(Express 등)가 분리된 구조에서
+          // A-1.5a) SQLite 스키마-INSERT 불일치 검증:
+          // CREATE TABLE IF NOT EXISTS 는 기존 테이블이 있으면 건너뜀 → 컬럼 추가 시 INSERT 실패.
+          // 서버 코드에서 INSERT 컬럼이 CREATE TABLE 컬럼과 일치하는지 정적 분석으로 확인.
+          if (appBuild && this.config.autoVerify && codeTouched && verifyRounds < this.config.maxVerifyRounds) {
+            const serverDir = [path.join(this.cwd, "server"), path.join(this.cwd, "src/server"), this.cwd]
+              .find(d => fs.existsSync(d) && fs.statSync(d).isDirectory()) ?? this.cwd;
+            const serverFiles = fs.readdirSync(serverDir).filter(f => /\.(ts|js)$/.test(f) && !f.includes(".test."));
+            const schemaIssues: string[] = [];
+            for (const sf of serverFiles) {
+              const code = fs.readFileSync(path.join(serverDir, sf), "utf8");
+              // CREATE TABLE 에서 컬럼 목록 추출
+              const tableMatches = [...code.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)\s*\(([^;]+?)\)/gi)];
+              for (const tm of tableMatches) {
+                const tableName = tm[1];
+                const colDefs = tm[2];
+                const cols = new Set(
+                  [...colDefs.matchAll(/^\s*(\w+)\s+\w/gm)].map(m => m[1].toLowerCase())
+                    .filter(c => !["primary", "foreign", "unique", "check"].includes(c))
+                );
+                // INSERT 컬럼 목록과 대조
+                const insertRe = new RegExp(`INSERT INTO ${tableName}\\s*\\(([^)]+)\\)`, "gi");
+                for (const im of code.matchAll(insertRe)) {
+                  const insertCols = im[1].split(",").map(c => c.trim().toLowerCase().replace(/['"]/g, ""));
+                  const missing = insertCols.filter(c => !cols.has(c));
+                  if (missing.length) {
+                    schemaIssues.push(`${sf}: INSERT INTO ${tableName} 에 없는 컬럼 → ${missing.join(", ")}. CREATE TABLE 에 해당 컬럼을 추가하거나 INSERT 에서 제거하세요.`);
+                  }
+                }
+              }
+            }
+            if (schemaIssues.length > 0 && verifyRounds < this.config.maxVerifyRounds) {
+              verifyRounds++;
+              codeTouched = false;
+              const detail = `[DB 스키마-INSERT 불일치]\n${schemaIssues.join("\n")}\n\n주의: CREATE TABLE IF NOT EXISTS 는 기존 테이블을 수정하지 않습니다. 컬럼 추가 시 DB 파일을 삭제하거나 ALTER TABLE ADD COLUMN 을 추가해야 합니다.`;
+              this.messages.push({ role: "assistant", content: message.content ?? "" });
+              this.messages.push({ role: "user", content: detail });
+              yield { type: "verify", status: "fail", cmd: "DB 스키마 검증", detail };
+              lastText = "";
+              continue;
+            }
+          }
+          // A-1.5b) Vite 프록시 설정 검증: 프론트(Vite)와 백엔드(Express 등)가 분리된 구조에서
           //   vite.config.ts 에 /api 프록시가 없으면 프론트의 fetch('/api/...') 가 백엔드로 안 가고
           //   "Unexpected end of JSON" / CORS 오류가 난다.
           if (appBuild && this.config.autoVerify && codeTouched) {
