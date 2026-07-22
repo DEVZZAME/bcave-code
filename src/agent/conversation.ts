@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { createOpenAIClient, chat } from "../openai/client.js";
-import { executeTool, getToolCategory } from "./tools.js";
+import { executeTool, getToolCategory, isDevServerCommand } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel, classifyTask } from "./router.js";
@@ -629,6 +629,12 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     let verifyRounds = 0;
     let artifactValidationPending = false;
     let artifactRepairRounds = 0;
+    const executionRequested = /(실행해|실행시켜|서버.{0,8}(?:켜|띄워|실행)|(?:^|\s)(?:run|start)(?:\s|$))/i.test(userMessage);
+    let runtimeStartAttempted = false;
+    let runtimeStartVerified = false;
+    let runtimeStartUrl = "";
+    let runtimeStartFailure = "";
+    let runtimeRepairRounds = 0;
 
     try {
       while (true) {
@@ -649,12 +655,33 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         const text = message.content?.trim() ?? "";
         const modelIsTryingToFinishPendingArtifact = artifactValidationPending &&
           (!message.tool_calls || message.tool_calls.length === 0);
-        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact) {
+        const modelIsTryingToReportRuntime = executionRequested &&
+          (!message.tool_calls || message.tool_calls.length === 0);
+        if (text && text !== lastText && !modelIsTryingToFinishPendingArtifact && !modelIsTryingToReportRuntime) {
           lastText = text;
           yield { type: "text", content: message.content as string };
         }
 
         if (!message.tool_calls || message.tool_calls.length === 0) {
+          // 실행 요청은 shell_exec가 실제 HTTP 응답을 확인한 경우에만 완료할 수 있다.
+          if (executionRequested && !runtimeStartVerified && !signal?.aborted) {
+            if (runtimeRepairRounds >= this.config.maxVerifyRounds) {
+              const detail = runtimeStartFailure || "개발 서버 실행 도구를 호출하지 않았거나 실제 HTTP 응답을 확인하지 못했습니다.";
+              yield { type: "error", message: `서버 실행을 확인하지 못해 완료 처리하지 않았습니다.\n${detail}` };
+              return;
+            }
+            runtimeRepairRounds++;
+            this.messages.push({ role: "assistant", content: message.content ?? "" });
+            this.messages.push({
+              role: "user",
+              content:
+                `[실행 완료 차단] 실제 서버 HTTP 응답이 확인되지 않았습니다. 성공 URL을 추정하거나 "실행되었습니다"라고 말하지 마세요. ` +
+                `로그 원인을 수정한 뒤 dev/start 명령을 다시 실행하고, shell_exec 결과가 [SERVER_STARTED]일 때만 완료하세요.\n\n` +
+                (runtimeStartFailure || (runtimeStartAttempted ? "서버 시작 검증 실패" : "아직 서버 실행 명령을 호출하지 않음")),
+            });
+            lastText = "";
+            continue;
+          }
           // 디자인 산출물은 write_file의 검토 통과가 완료 조건이다. 모델이 린트 실패 뒤
           // 성공 문구를 말해도 종료하지 않고, 같은 파일을 다시 작성하도록 되먹인다.
           if (artifactValidationPending && !signal?.aborted) {
@@ -801,7 +828,13 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             }
             if (!smoke.skipped) yield { type: "verify", status: "pass", cmd: `서버 실행 헬스체크 통과 (${smoke.startCmd})` };
           }
-          this.messages.push({ role: "assistant", content: message.content ?? "" });
+          if (executionRequested && runtimeStartVerified) {
+            const confirmed = `실행 확인됨: ${runtimeStartUrl}`;
+            this.messages.push({ role: "assistant", content: confirmed });
+            yield { type: "text", content: confirmed };
+          } else {
+            this.messages.push({ role: "assistant", content: message.content ?? "" });
+          }
           yield { type: "done" };
           return;
         }
@@ -857,6 +890,17 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           }
 
           const result = await executeTool(name, args, this.cwd);
+          if (name === "shell_exec" && isDevServerCommand(String(args.command ?? ""))) {
+            runtimeStartAttempted = true;
+            if (result.startsWith("[SERVER_STARTED]")) {
+              runtimeStartVerified = true;
+              runtimeStartFailure = "";
+              runtimeStartUrl = result.match(/https?:\/\/[^\s]+/)?.[0] ?? "(확인된 URL 없음)";
+            } else {
+              runtimeStartVerified = false;
+              runtimeStartFailure = result;
+            }
+          }
           if (name === "write_file" && typeof args.path === "string" && /\.html?$/i.test(args.path)) {
             if (/\(검토 통과\)\s*$/.test(result)) {
               artifactValidationPending = false;

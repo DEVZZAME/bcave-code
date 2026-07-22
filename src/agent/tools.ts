@@ -149,6 +149,13 @@ export function getToolCategory(name: string): PermissionCategory {
   return cat;
 }
 
+/** 장기 실행 개발/프리뷰 서버 명령인지 판별한다. */
+export function isDevServerCommand(command: string): boolean {
+  return /(?:^|\s|\&\&|\|\|)\s*(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|dev:server|start:dev)\b/i.test(command) ||
+    /(?:^|\s)(?:npx\s+)?vite\b(?!\s+build)/i.test(command) ||
+    /\b(?:next|vite|ts-node|tsx|nodemon|pm2 start)\b.*(?:dev|start|watch|index\.ts|server\.ts|index\.js)/i.test(command);
+}
+
 // ── 출력 폭증 방지: 툴 결과 크기·항목 수 상한 + 무거운 폴더 제외 ──
 // (제한이 없으면 list_files **/* 나 큰 파일이 대화 히스토리에 통째로 쌓여
 //  매 턴 재전송되며 토큰이 폭증한다.)
@@ -844,8 +851,7 @@ export async function executeTool(
           return "[차단됨] HTML/대시보드 파일을 shell(cat/echo/python/node 스크립트 등)로 직접 만들지 마세요. 반드시 write_file 도구로 저장해야 데이터 주입({{BCAVE_DATA:경로}})과 자동 검토가 적용됩니다.";
         }
         // 개발/프리뷰 서버 명령 감지 — 블로킹 실행 대신 백그라운드로 띄우고 포트 응답을 확인한다.
-        const isDevServer = /(?:^|\s|\&\&|\|\|)\s*(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|dev:server|start:dev)\b/i.test(cmd) ||
-          /\b(?:next|vite|ts-node|tsx|nodemon|pm2 start)\b.*(?:dev|start|watch|index\.ts|server\.ts|index\.js)/i.test(cmd);
+        const isDevServer = isDevServerCommand(cmd);
 
         if (isDevServer) {
           const child = spawn(cmd, { cwd, shell: true, detached: true, stdio: ["ignore", "pipe", "pipe"],
@@ -858,7 +864,9 @@ export async function executeTool(
 
           // 포트를 stdout 에서 추출하거나 일반적인 기본 포트를 시도한다
           const guessPort = (text: string): number[] => {
-            const found = new Set<number>([3000, 5173, 4000, 8000, 8080]);
+            // 다른 프로젝트의 기존 서버를 성공으로 오인하지 않도록 새 프로세스가
+            // 명령/로그에서 실제로 언급한 포트만 검사한다.
+            const found = new Set<number>();
             for (const m of text.matchAll(/(?:localhost|127\.0\.0\.1|:)(\d{2,5})\b/g)) found.add(+m[1]);
             for (const m of text.matchAll(/port[\s:=]+(\d{2,5})/gi)) found.add(+m[1]);
             return [...found].filter(p => p > 0 && p < 65536);
@@ -872,7 +880,7 @@ export async function executeTool(
           while (Date.now() < deadline) {
             if (exited !== null && exited !== 0) break;
             const text = logs.join("");
-            for (const p of guessPort(text)) { if (await ping(p)) { url = `http://localhost:${p}`; break; } }
+            for (const p of guessPort(`${cmd}\n${text}`)) { if (await ping(p)) { url = `http://localhost:${p}`; break; } }
             if (url) break;
             await new Promise(r => setTimeout(r, 600));
           }
@@ -883,12 +891,12 @@ export async function executeTool(
             child.stderr?.destroy();
             child.unref();
             await resolvePlaceholdersInDir(cwd);
-            return `✓ 서버가 백그라운드에서 실행 중입니다: ${url}\nPID: ${child.pid ?? "unknown"}\n종료하려면: kill ${child.pid ?? "<PID>"}`;
+            return `[SERVER_STARTED] ${url}\nPID: ${child.pid ?? "unknown"}\n종료하려면: kill ${child.pid ?? "<PID>"}`;
           }
           // 기동 실패 시에는 정리
           try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* noop */ }
           try { if (child.pid) process.kill(child.pid, "SIGTERM"); } catch { /* noop */ }
-          return `서버 응답 없음 (30초 초과).\n로그:\n${tail || "(없음)"}\n\n위 로그를 보고 오류를 수정하세요. 포트가 다르면 명시적 포트 번호로 알려주세요.`;
+          return `[SERVER_START_FAILED] 서버 응답 없음 (30초 초과).\n로그:\n${tail || "(없음)"}\n\n위 로그를 보고 오류를 수정하세요. 실제 HTTP 응답을 확인하기 전에는 실행됐다고 말하지 마세요.`;
         }
 
         const output = await new Promise<string>((resolve) => {

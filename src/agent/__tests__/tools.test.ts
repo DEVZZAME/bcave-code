@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import XLSX from "xlsx";
-import { executeTool, getToolCategory, TOOL_DEFINITIONS } from "../tools.js";
+import { executeTool, getToolCategory, isDevServerCommand, TOOL_DEFINITIONS } from "../tools.js";
 
 describe("Tools", () => {
   const testDir = path.join(os.tmpdir(), "bcave-tools-test-" + Date.now());
@@ -44,6 +44,14 @@ describe("Tools", () => {
     it("maps shell_exec to shell_exec", () => {
       expect(getToolCategory("shell_exec")).toBe("shell_exec");
     });
+  });
+
+  it("detects long-running dev server commands without treating build commands as servers", () => {
+    expect(isDevServerCommand("npm run dev")).toBe(true);
+    expect(isDevServerCommand("pnpm start")).toBe(true);
+    expect(isDevServerCommand("npx vite --host 0.0.0.0")).toBe(true);
+    expect(isDevServerCommand("npm run build")).toBe(false);
+    expect(isDevServerCommand("npm test")).toBe(false);
   });
 
   describe("read_file", () => {

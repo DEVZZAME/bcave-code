@@ -431,6 +431,14 @@ function toolResultLine(name: string, result: string): string | null {
     return chalk.dim("    ✓ 저장됨");
   }
   if (name === "shell_exec") {
+    if (r.startsWith("[SERVER_START_FAILED]")) {
+      const detail = r.replace(/^\[SERVER_START_FAILED\]\s*/, "").split("\n")[0];
+      return chalk.red("    ✗ 실행 실패") + chalk.dim(detail ? " · " + detail : "");
+    }
+    if (r.startsWith("[SERVER_STARTED]")) {
+      const url = r.match(/https?:\/\/[^\s]+/)?.[0];
+      return chalk.green("    ✓ 서버 응답 확인") + chalk.dim(url ? " · " + url : "");
+    }
     const firstOut = r.split("\n").map((s) => s.trim()).find(Boolean);
     return chalk.dim("    ✓ 완료" + (firstOut ? " · " + (firstOut.length > 80 ? firstOut.slice(0, 80) + "…" : firstOut) : ""));
   }
