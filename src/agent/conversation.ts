@@ -490,14 +490,11 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
       const targetMap: Record<string, string> = {
         "1": "vercel", vercel: "vercel",
         "2": "railway", railway: "railway",
-        // 스택 직후 배포 선택 (5개 옵션): 1=railway 2=vercel 3=fly 4=aws/vps 5=local
         "1": "railway", railway: "railway",
         "2": "vercel", vercel: "vercel",
         "3": "fly", "fly.io": "fly", flyio: "fly",
-        "4": "aws", ec2: "aws", ecs: "aws", vps: "vps", ubuntu: "vps", nginx: "vps", "자체": "vps",
-        "5": "local", 로컬: "local", 개발용: "local",
-        // 기존 6개 옵션 호환
-        "6": "local",
+        "4": "aws", ec2: "aws", ecs: "aws", vps: "vps", ubuntu: "vps",
+        "5": "local", "6": "local", 로컬: "local", 개발용: "local",
       };
       const picked = Object.entries(targetMap).find(([k]) => answer.startsWith(k))?.[1];
       if (picked) {
