@@ -10,7 +10,7 @@ import { executeTool, getToolCategory } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel, classifyTask } from "./router.js";
-import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest } from "./request-classification.js";
+import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest, detectDeployTarget } from "./request-classification.js";
 import { designRules, designSystemDir, designSystemNames, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
 import { hubRefresh } from "../auth/hub.js";
 
@@ -158,6 +158,8 @@ export class ConversationManager {
   private pendingDesignChoice = false;
   private selectedDesignSystem = "";
   private applicationActive = false;
+  private pendingDeployChoice = false; // 앱 빌드 시 배포 옵션 선택 대기
+  private selectedDeployTarget = ""; // 선택된 배포 플랫폼
 
   constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string) {
     this.config = config;
@@ -166,35 +168,15 @@ export class ConversationManager {
     this.client = createOpenAIClient(config);
     this.messages.push({
       role: "system",
-      content: `You are BCave, a CLI coding agent. You help users by reading/writing files and executing shell commands on their local machine. Working directory: ${cwd}. Always use the provided tools to interact with the filesystem and shell. Respond in the same language the user uses.
+      content: `You are BCave, a CLI coding agent. Working directory: ${cwd}. Use tools to interact with the filesystem and shell. Respond in the user's language.
 
-ARTIFACT vs APPLICATION (decide first): if the user asks for a real SERVICE / APPLICATION (backend, API, data, accounts/auth, CRUD, persistence, a running app), build an ACTUAL multi-file, runnable project WITH A REAL BACKEND — never deliver a few static HTML files and call it a service, and never fake data/auth in the frontend. The SINGLE-self-contained-HTML rule below applies ONLY to standalone artifacts (a dashboard, a report, a landing/one-off page, a mockup). For applications, ignore the single-HTML rule and follow the per-request application note.
-UI / SCREENS (service & app development): When building product UI — screens, pages, components, forms, flows, features — build real, modern, production-quality web UI exactly like a general coding agent (Claude Code / Codex) would.
-Then inspect the repo and FOLLOW its existing stack and conventions: framework (React / Vue / Next / Svelte / plain HTML), styling (Tailwind / CSS Modules / styled-components / plain CSS), component library, routing, and file layout. Wire it into the codebase. If no stack exists yet, DEFAULT to Tailwind CSS + shadcn/ui for the frontend — these produce consistently modern, clean UI and models know the patterns extremely well. Never use arbitrary hex colors or inline styles; use Tailwind utilities. For simple HTML-only projects use the Tailwind CDN script.
-UI QUALITY (apply in priority order for every screen/component):
-1. ACCESSIBILITY [CRITICAL]: contrast ≥4.5:1 for body text (3:1 for large text/UI), all images have alt text, interactive elements keyboard-navigable, aria-labels on icon-only buttons. NEVER remove focus rings.
-2. TOUCH & INTERACTION [CRITICAL]: min tap target 44×44px, 8px+ spacing between targets, always show loading/pending feedback. NEVER rely on hover-only interactions.
-3. STYLE CONSISTENCY [HIGH]: use SVG icons (Lucide, Heroicons), never emoji as icons. Match Tailwind design tokens for color/spacing/radius — no arbitrary hex or inline styles.
-4. LAYOUT & RESPONSIVE [HIGH]: mobile-first breakpoints (sm/md/lg), viewport meta tag, no horizontal scroll, no fixed-px container widths. Use Tailwind responsive prefixes.
-5. TYPOGRAPHY & COLOR [MEDIUM]: body text ≥16px / line-height 1.5, use semantic color tokens (not raw hex). NEVER gray-on-gray or low-contrast combos.
-6. ANIMATION [MEDIUM]: duration 150–300ms, ease-in-out. Respect prefers-reduced-motion. NEVER animate width/height (use transform/opacity instead).
-7. FORMS & FEEDBACK [MEDIUM]: every field has a visible label (not placeholder-only), show inline error next to the field (not only at top), helper text for complex inputs. Disable submit during loading.
-8. NAVIGATION [HIGH]: predictable back behavior, bottom nav ≤5 items, keyboard-accessible menus.
-9. CHARTS [LOW]: always include legend + tooltip, never rely on color alone to convey meaning.
-WIRING (mandatory — the most common source of "잔잔한 이슈"): every new screen/page MUST be wired into the running app before declaring done. Checklist: (1) route added to the router file (Next.js: file in pages/ or app/, React Router: <Route> in router config, Express: app.get/use); (2) navigation link added where users would expect to reach it; (3) API calls in the frontend actually point to the correct endpoint paths; (4) new backend routes are actually mounted on the server (app.use / router registration); (5) env vars / config used in code actually exist in .env.example. Never create a file and leave it disconnected. After writing, read the router/nav/server-entry to confirm the wire is in place.
-FILE RULES (mandatory): (1) SINGLE self-contained .html file — ALL CSS and JS inline; no separate .css/.js files, no external stylesheet links (a web-font link and an inlined chart lib are the only allowed externals). (2) ALWAYS write to a NEW file that does not already exist (e.g. <name>.html → <name>-2.html …); NEVER overwrite a previous page/dashboard, even for a "다르게/더 심플하게" iteration — so the user can keep and compare versions. (3) Save the file in the CURRENT working directory (where the user ran the command) — do NOT create or nest it inside a subfolder (never invent a project subdirectory for a single HTML deliverable).
-DATA (mandatory — the #1 cause of "data disappeared on edit"): ALWAYS inject spreadsheet data with the {{BCAVE_DATA:/abs/path#sheet}} placeholder — on the FIRST build AND on EVERY later edit/redesign. write_file resolves it to the FULL dataset at save time, so re-emitting the placeholder always re-injects all rows. The data-source path does NOT change across edits — reuse the SAME path from earlier in the conversation. When the user asks to "change / develop / redo" a data page, you are writing a NEW file (per FILE RULES) that must contain the data again: put {{BCAVE_DATA:path}} back in. NEVER hand-copy rows out of the previous HTML, NEVER paste a sample/subset, NEVER leave a data array empty (window.__DATA=[] / data:[]), and do NOT try to read the big data blob back from the old file (read_file truncates it) — just reference the original path via the placeholder. If you don't have the path, ASK for it rather than shipping empty data.
-DATA BINDING & RENDERING (mandatory — how to actually USE the injected data): the placeholder MUST go ONLY inside a script as a JS variable — <script>window.__DATA = {{BCAVE_DATA:/abs/path#sheet}};</script> (each row = an object keyed by real column names). NEVER place {{BCAVE_DATA}} inside visible HTML (a <td>, <p>, <div>…) — doing so dumps the raw JSON array as a giant wall of text (this is a severe bug). Then RENDER everything from window.__DATA in JS: compute KPIs/aggregates (sums, averages, group-by) and build tables/chart datasets by iterating the array. Tables: use the REAL column names (never "컬럼 1/2/3"), and render only a sensible slice (e.g. top 20–50 rows or an aggregated summary), NOT all thousands of rows. Charts: the labels and numbers MUST be derived from window.__DATA by aggregating it (e.g. group-by month → sum) — NEVER hardcode placeholder series like labels ['Q1'..'Q8'] / data [12,19,15,…]. Section titles must name real content ("월별 매출", "지역별 분포"), not meta/narration ("보이는 것", "다음 보기", "확인 포인트", "데이터 해석").
-MULTI-SHEET & VALUES (avoid the recurring "data missing" bugs): (1) If the workbook has MULTIPLE sheets and your dashboard needs several, inject EACH one you use as its own variable — <script>window.__월별 = {{BCAVE_DATA:path#월별}}; window.__브랜드 = {{BCAVE_DATA:path#브랜드}};</script> — or the whole map with window.__SHEETS = {{BCAVE_SHEETS:path}} then read window.__SHEETS["시트명"]. The read_file preview lists the sheet names and the exact injection snippet. (2) NEVER reference data globals you did not inject via a placeholder (window.__DATA_MAP__, __DATA_BRAND__, loadSheet(), etc. are NOT real — they resolve to empty and blank the section). Every data source a chart/table/KPI reads MUST trace back to a {{BCAVE_DATA:…}} / {{BCAVE_SHEETS:…}} placeholder in the same file. (3) Injected numbers are already real numbers (no comma strings), so +row['총매출'] / reduce sums work directly — do not re-parse. (4) The injected array is already clean row objects (title/subtitle rows auto-removed) — do NOT .slice() off leading rows to "skip headers"; that drops real data.
-DELIVERABLE CONTENT: the file contains ONLY the real product content — title, data, KPIs, charts, insights. NEVER embed meta/process narration: no "…를 바탕으로 다시 구성했습니다", no design-system/mood description, no data-source file path, no "단일 HTML 파일…" notes, no "원하시면 다음 단계로 …". Put ALL of that in your CHAT reply only.
-TITLE & HEADER: h1 is a concise, factual report title — a short noun phrase (e.g. "브랜드 매출·고객 성과 리포트"), NO trailing sentence/period, NO marketing phrasing. Keep the header compact (optional short eyebrow + short h1 + at most one brief subtitle). Do not blanket-bold every heading.
-RESPONSIVE & LAYOUT (mandatory, mobile-first): always add <meta name="viewport" content="width=device-width,initial-scale=1"> and \`*{box-sizing:border-box}\`. Use fluid layouts (flex/grid with min-width:0 on children, grid tracks as minmax(0,1fr), %/rem/clamp() sizing) — never fixed px widths on containers (use max-width + width:100%). Add @media breakpoints (e.g. 640/768/1024px) so nothing overflows or breaks on mobile; media/img get max-width:100%. Long text wraps; avoid horizontal scroll. Cover UI states: hover/focus/active/disabled + loading/empty/error.
-MULTI-COLUMN ROWS (chart + side content): when a chart sits next to cards/lists/a table in the same grid row, the two columns must line up top AND bottom — never pair a FIXED-height chart box with auto-height content under align-items:start (it leaves ragged, misaligned bottoms / dead whitespace, a very common bug). Fix: put align-items:stretch on the grid and make BOTH columns fill the row height — the chart wrapper uses height:100%;min-height:280px (canvas fills it via maintainAspectRatio:false) and the side column uses height:100% (e.g. flex column that distributes its items). If you cannot make heights match, stack them vertically instead of side-by-side. The same applies to any row of side-by-side cards: give the row align-items:stretch so cards are equal height. After writing an HTML page, honor the export review — fix any 반응형/레이아웃 warnings before claiming done.
-CHARTS: to use Chart.js, inline it as <script>{{BCAVE_CHARTJS}}</script> — NOT <script src="{{BCAVE_CHARTJS}}"> (putting the library in src breaks loading → chart won't render). Put EVERY <canvas> in a fixed-height container (position:relative;height:280px) and set the chart option maintainAspectRatio:false. For spreadsheet data token-free use the {{BCAVE_DATA:/abs/path#sheet}} placeholder. These are generic utilities, not the design system.
-COMPOSITION DISCIPLINE:
-- CARDS are NOT the default container. Use a card ONLY for a genuinely discrete widget (a KPI tile, one chart, one callout). Do NOT wrap whole sections, tables, or the whole page in cards — a page that is just a stack of boxes is wrong. Most content (section headers, tables, charts, prose) sits directly on the page inside the section, no card.
-- Use Chart.js for data charts. Do not hand-build bars, donuts, gauges, or sparklines from divs when a real chart is appropriate.
-- Keep text contrast accessible on every surface and use a coherent visual hierarchy across the page.`,
+ARTIFACT vs APP: Real service/app (backend+API+DB+auth) → multi-file project. Standalone dashboard/report/landing → single self-contained HTML. Never fake data with static arrays.
+UI: Follow existing stack. No stack → Tailwind CSS + shadcn/ui default. No arbitrary hex/inline styles.
+UI QUALITY: (1) contrast≥4.5:1, alt text, keyboard nav, aria-labels, no remove focus rings (2) tap≥44×44px, loading feedback, no hover-only (3) SVG icons, Tailwind tokens (4) mobile-first, viewport meta, no horizontal scroll (5) body≥16px/1.5lh, no gray-on-gray (6) animation 150-300ms, prefers-reduced-motion (7) visible labels, inline errors, disable submit on load (8) predictable back, bottom-nav≤5.
+WIRING: new page→add route+nav link; new API→frontend fetch+error; new component→import+render; schema change→migration. Read router/server after writing to confirm wire.
+HTML ARTIFACTS: (1) single .html, all CSS+JS inline (2) always new filename (3) save in cwd, no subdirectory.
+DATA: Use {{BCAVE_DATA:/path#sheet}} placeholder in <script>window.__DATA=…</script> only—never in visible HTML. Render from __DATA in JS (aggregate, slice top 50). Use {{BCAVE_SHEETS:path}} for multi-sheet. Re-emit placeholder on every edit. Never copy rows or leave empty arrays.
+CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:280px div, maintainAspectRatio:false. Grid align-items:stretch for chart+side-card rows.`,
     });
   }
 
@@ -298,6 +280,72 @@ COMPOSITION DISCIPLINE:
     this.messages = [system, ...msgs.slice(chosen)];
   }
 
+  /** 배포 플랫폼별 프로덕션 스택 가이드 */
+  private static deployStackGuide(target: string): string {
+    const guides: Record<string, string> = {
+      vercel:
+        "[배포 대상: Vercel]\n" +
+        "- 프론트: Next.js (App Router) + TypeScript + Tailwind CSS + shadcn/ui\n" +
+        "- DB: PostgreSQL — Vercel Postgres(Neon) 또는 Supabase. Prisma ORM으로 스키마 관리.\n" +
+        "- 인증: NextAuth.js (next-auth) 또는 Clerk\n" +
+        "- 파일 업로드: Vercel Blob 또는 AWS S3\n" +
+        "- 환경변수: .env.local + Vercel 대시보드 환경변수\n" +
+        "- 배포: git push → 자동 배포. `vercel` CLI로 미리보기 배포 가능.\n" +
+        "- SQLite·로컬 파일시스템 사용 금지 (Serverless 환경에서 영속화 불가).",
+
+      railway:
+        "[배포 대상: Railway]\n" +
+        "- 백엔드: Node.js + Express (또는 Fastify) + TypeScript\n" +
+        "- DB: PostgreSQL — Railway Postgres 플러그인 (DATABASE_URL 자동 주입). Prisma ORM.\n" +
+        "- 프론트: React + Vite (별도 Railway 서비스) 또는 백엔드에서 정적 서빙\n" +
+        "- 인증: JWT + bcrypt, HttpOnly 쿠키 세션\n" +
+        "- 환경변수: Railway 대시보드 Variables\n" +
+        "- 배포: Dockerfile 또는 Nixpacks 자동 감지, git push → 자동 배포\n" +
+        "- SQLite 사용 금지 (Railway 볼륨 미설정 시 재배포마다 데이터 소실).",
+
+      fly:
+        "[배포 대상: Fly.io]\n" +
+        "- 백엔드: Node.js + Express + TypeScript\n" +
+        "- DB: PostgreSQL — Fly Postgres 또는 Supabase. Prisma ORM.\n" +
+        "- 컨테이너: Dockerfile 필수 (multi-stage build 권장)\n" +
+        "- 인증: JWT + bcrypt, HttpOnly 쿠키\n" +
+        "- 환경변수: `fly secrets set KEY=VALUE`\n" +
+        "- 배포: `fly deploy` (Dockerfile 기반)\n" +
+        "- SQLite: Fly Volumes를 마운트하면 가능하지만 단일 인스턴스만 안전. 스케일 필요 시 Postgres 권장.",
+
+      aws:
+        "[배포 대상: AWS]\n" +
+        "- 백엔드: Node.js + Express + TypeScript → EC2 또는 ECS(Fargate)\n" +
+        "- DB: PostgreSQL — AWS RDS(Aurora Serverless v2 또는 RDS PostgreSQL). Prisma ORM.\n" +
+        "- 정적 파일: S3 + CloudFront\n" +
+        "- 인증: JWT + bcrypt, HttpOnly 쿠키. 또는 AWS Cognito.\n" +
+        "- 환경변수: AWS Secrets Manager 또는 Parameter Store\n" +
+        "- 컨테이너: Dockerfile + ECR + ECS 또는 Elastic Beanstalk\n" +
+        "- SQLite 사용 금지.",
+
+      vps:
+        "[배포 대상: VPS/자체 서버 (Ubuntu + Nginx)]\n" +
+        "- 백엔드: Node.js + Express + TypeScript (PM2로 프로세스 관리)\n" +
+        "- DB: PostgreSQL — apt 설치 또는 Docker Compose. Prisma ORM.\n" +
+        "- 프론트: React + Vite 빌드 후 Nginx 정적 서빙\n" +
+        "- 인증: JWT + bcrypt, HttpOnly 쿠키\n" +
+        "- 환경변수: /etc/environment 또는 .env (서버에 직접 관리)\n" +
+        "- 배포: Dockerfile + docker-compose.yml (nginx + app + postgres) 또는 PM2\n" +
+        "- 리버스 프록시: Nginx + Certbot(Let's Encrypt SSL)\n" +
+        "- SQLite 사용 금지 (프로덕션 데이터 무결성/동시성 보장 불가).",
+
+      local:
+        "[배포 대상: 로컬 개발용]\n" +
+        "- 백엔드: Node.js + Express + TypeScript (tsx watch로 HMR)\n" +
+        "- DB: SQLite (better-sqlite3 또는 sqlite3). 로컬 개발 한정.\n" +
+        "  단, 나중에 프로덕션 배포 시 PostgreSQL + Prisma로 마이그레이션 필요.\n" +
+        "  처음부터 Prisma를 쓰면 DB 전환이 설정 변경만으로 가능하므로 권장.\n" +
+        "- 프론트: React + Vite\n" +
+        "- 인증: JWT + bcrypt, HttpOnly 쿠키",
+    };
+    return guides[target] ?? guides["railway"]; // 기본값: Railway
+  }
+
   /**
    * LLM 호출 없이 대화에 한 턴(지시문 + 하드코딩된 어시스턴트 인사)을 심는다.
    * 첫 인사가 고정적인 커맨드에서 첫 LLM 호출을 아끼기 위함. 이후 사용자가
@@ -312,6 +360,50 @@ COMPOSITION DISCIPLINE:
     // 실제 백엔드가 있는 애플리케이션/서비스 요청 → 단일 정적 HTML 플로우가 아니라 진짜 프로젝트로 만든다.
     const appBuild = isAppBuild(userMessage);
     if (appBuild) this.applicationActive = true;
+
+    // ─── 배포 옵션 선택 ───────────────────────────────────────────────────────
+    // 새 앱 빌드 요청이면 배포 대상을 먼저 물어본다 (프로덕션 스택을 결정하기 위해).
+    // 이미 선택됐거나, 메시지에 명시됐거나, 배포 선택 답변이면 건너뛴다.
+    if (appBuild && !this.selectedDeployTarget) {
+      const explicitTarget = detectDeployTarget(userMessage);
+      if (explicitTarget) {
+        this.selectedDeployTarget = explicitTarget;
+        this.pendingDeployChoice = false;
+      } else if (!this.pendingDeployChoice) {
+        // 처음 앱 빌드 요청 → 배포 옵션을 먼저 묻고 턴 종료
+        const q =
+          "어떤 환경에 배포할 예정인가요? 배포 대상에 따라 DB·스택·설정이 달라집니다.\n\n" +
+          "  1. **Vercel** — Next.js 풀스택, PostgreSQL(Neon/Supabase), 자동 배포\n" +
+          "  2. **Railway** — Node.js + Express, PostgreSQL 올인원, 간편 배포 (추천)\n" +
+          "  3. **Fly.io** — Docker 기반, PostgreSQL, 더 많은 제어\n" +
+          "  4. **AWS / ECS** — EC2·Fargate, RDS PostgreSQL, 대규모·엔터프라이즈\n" +
+          "  5. **VPS / 자체 서버** — Ubuntu + Nginx + Docker Compose, 자체 호스팅\n" +
+          "  6. **로컬 개발용** — 지금은 로컬에서만, 나중에 배포 결정\n\n" +
+          "번호나 이름으로 답해 주세요. (예: `2` 또는 `railway`)";
+        this.pendingDeployChoice = true;
+        this.messages.push({ role: "user", content: userMessage });
+        this.messages.push({ role: "assistant", content: q });
+        yield { type: "text", content: q };
+        yield { type: "done" };
+        return;
+      }
+    } else if (this.pendingDeployChoice && !appBuild) {
+      // 배포 선택 대기 중 답변 처리
+      const answer = userMessage.trim().toLowerCase();
+      const targetMap: Record<string, string> = {
+        "1": "vercel", vercel: "vercel",
+        "2": "railway", railway: "railway",
+        "3": "fly", "fly.io": "fly", flyio: "fly",
+        "4": "aws", ec2: "aws", ecs: "aws",
+        "5": "vps", ubuntu: "vps", nginx: "vps", "자체": "vps",
+        "6": "local", 로컬: "local", 개발용: "local",
+      };
+      const picked = Object.entries(targetMap).find(([k]) => answer.startsWith(k))?.[1];
+      if (picked) {
+        this.selectedDeployTarget = picked;
+        this.pendingDeployChoice = false;
+      }
+    }
     const systems = designSystemNames();
     const withoutPaths = userMessage.replace(/\S*[\\/]\S*/g, " ").toLowerCase();
     let requestedSystem = systems.find((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(withoutPaths)) || "";
@@ -363,25 +455,24 @@ COMPOSITION DISCIPLINE:
           "동일 축에는 동일 단위만 사용하고 고객 수 단위는 '명'이다. 완료 전 write_file 결과가 반드시 검토 통과여야 하며 실패/경고를 성공으로 간주하지 않는다. 완료 응답은 파일명과 검증 통과만 간결히 쓴다.",
       );
     }
-    if (appBuild) {
+    if (appBuild || this.applicationActive) {
+      const deployTarget = this.selectedDeployTarget || "railway";
+      const deployGuide = ConversationManager.deployStackGuide(deployTarget);
       this.messages.push({
         role: "system",
         content:
-          "[APPLICATION_CONTEXT]\n[이 요청은 정적 목업이 아니라 실제로 동작하는 서비스/애플리케이션이다. 정적 HTML 파일 몇 개로 끝내고 '서비스'라고 부르지 말 것. 다음을 갖춘 진짜 프로젝트를 만든다:\n" +
-          "- 백엔드(필수): 실제 서버와 HTTP API 엔드포인트 + 데이터 영속화(DB). 별도 인프라가 필요없도록 기본은 SQLite/파일 DB. 데이터·사용자·상태·CRUD·인증·결제는 반드시 서버에서 처리 — 프론트 하드코딩·localStorage·가짜 배열 목업으로 대체 금지.\n" +
-          "- 프론트엔드: 그 API 를 fetch 로 호출해 실제 데이터를 렌더(정적 더미데이터 금지).\n" +
-          "- 구조: 여러 파일로 된 실행 가능한 프로젝트 — package.json(의존성), 폴더 구조, 서버·라우트·데이터 계층 분리, 라우팅.\n" +
-          "- 실행/검증: 의존성 설치가 되고 build/typecheck 가 통과해야 한다. 실행 방법(예: npm install && npm run dev)과 주요 엔드포인트를 README 로 남긴다. (긴 실행이 필요한 서버 起動은 사용자가 하도록 안내만.)\n" +
-          "- 스택: 저장소에 기존 스택이 있으면 그대로 따른다. 기존 스택이 없으면 아래 기본값을 사용한다.\n" +
-          "  [기본 프론트엔드 스택] Tailwind CSS + shadcn/ui 컴포넌트.\n" +
-          "    · Tailwind: npm install -D tailwindcss postcss autoprefixer && npx tailwindcss init -p\n" +
-          "    · shadcn/ui: npx shadcn@latest init (선택 후 npx shadcn@latest add button card input label ...)\n" +
-          "    · 또는 Next.js 프로젝트면 create-next-app 시 Tailwind 옵션 선택 후 shadcn init\n" +
-          "    · 단순 HTML 서빙이면 CDN Tailwind(<script src=\"https://cdn.tailwindcss.com\">)로 빠르게 시작\n" +
-          "    · shadcn 컴포넌트가 없을 때는 Tailwind 유틸리티 클래스로 직접 구성 — 임의 hex/inline style 금지\n" +
-          "  [기본 백엔드 스택] Node.js + Express + SQLite(better-sqlite3). 무거운 외부 인프라(별도 DB 서버·클라우드·도커 필수)는 요구하지 말 것.\n" +
-          "  Next.js 풀스택이면 Tailwind+shadcn+Prisma+SQLite 조합.\n" +
-          "- 단일 인라인 HTML 규칙은 여기 적용되지 않는다(정상적인 다중 파일 프로젝트로).]",
+          "[APPLICATION_CONTEXT]\n이 요청은 실제로 동작하는 서비스/애플리케이션이다. 정적 HTML 파일 몇 개로 끝내지 말 것.\n\n" +
+          deployGuide + "\n\n" +
+          "공통 규칙:\n" +
+          "- 프론트엔드 스타일: Tailwind CSS + shadcn/ui (shadcn 없으면 Tailwind 유틸리티, 임의 hex/inline style 금지)\n" +
+          "- 프론트엔드: API를 fetch로 호출해 실제 데이터 렌더 (정적 더미데이터 금지)\n" +
+          "- 데이터·사용자·상태·CRUD·인증은 반드시 서버에서 처리 (프론트 하드코딩·localStorage·가짜 배열 금지)\n" +
+          "- 구조: package.json, 폴더 구조, 서버·라우트·데이터 계층 분리\n" +
+          "- Prisma ORM 사용 시 .env에 DATABASE_URL 설정, `prisma migrate dev`로 스키마 관리\n" +
+          "- .env.example에 필요한 환경변수를 모두 나열 (실제 값은 .env에, .gitignore에 포함)\n" +
+          "- README에 실행 방법, 환경변수 설정, 배포 방법 포함\n" +
+          "- 기존 저장소에 스택이 있으면 그대로 따른다\n" +
+          "- 단일 인라인 HTML 규칙 적용 안 됨 (정상적인 다중 파일 프로젝트)",
       });
     }
     // B) 계획 먼저 + 완료 기준 명시: 실질적 개발 작업은 작게 쪼개되, 반드시 실제로 연결까지 확인한다.
@@ -399,7 +490,8 @@ COMPOSITION DISCIPLINE:
           "   - DB 스키마 변경: migration이 적용됐는가? seed가 필요한가?\n" +
           "   연결이 빠진 채로 '완료'라고 하지 말 것 — 만든 것이 실제로 동작하는 경로까지가 완료다.\n" +
           "4) UI 품질(화면이 있을 때): 44×44px 터치 타깃, 4.5:1 대비, 인라인 에러, 로딩 피드백, SVG 아이콘(이모지 금지), 모바일 반응형.\n" +
-          "5) 완료 응답: 만든 파일, 추가한 route/link, 실행 명령만 간결히. 불필요한 설명 생략.]",
+          "5) 완료 후: 구현이 끝나면 '지금 바로 실행해드릴까요?' 한 줄로 물어본다. 사용자가 '응/예/실행해줘'라고 하면 dev 서버를 백그라운드로 기동하고 접속 URL을 알려준다. 사용자가 터미널에 익숙하지 않을 수 있으므로 실행 명령을 직접 대신 수행한다.\n" +
+          "6) 완료 응답: 만든 파일, 추가한 route/link, 실행 명령 1줄만. 불필요한 설명 생략.]",
       });
     }
     this.messages.push({ role: "user", content: userMessage });

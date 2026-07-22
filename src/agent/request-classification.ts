@@ -29,3 +29,16 @@ export function classifyUiSurface(message?: string): UiSurface {
 export function isDashboardArtifactRequest(message: string): boolean {
   return /(대시보드|dashboard|리포트|보고서|report|analytics\s*화면)/i.test(message);
 }
+
+/** 배포 플랫폼이 메시지에 명시됐으면 그 이름을 반환. 없으면 null. */
+export function detectDeployTarget(message: string): string | null {
+  const m = message.toLowerCase();
+  if (/vercel/i.test(m)) return "vercel";
+  if (/railway/i.test(m)) return "railway";
+  if (/fly\.io|flyio/i.test(m)) return "fly";
+  if (/\baws\b|ec2|ecs|elastic\s*beanstalk/i.test(m)) return "aws";
+  if (/heroku/i.test(m)) return "heroku";
+  if (/vps|ubuntu|nginx|자체\s*서버|온프레미스|on.?prem/i.test(m)) return "vps";
+  if (/로컬|local|개발용|테스트용|나중에\s*배포|지금은\s*로컬/i.test(m)) return "local";
+  return null;
+}
