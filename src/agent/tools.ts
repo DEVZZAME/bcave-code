@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import http from "node:http";
 import zlib from "node:zlib";
-import { exec } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 import { glob } from "glob";
 import XLSX from "xlsx";
 import { CHARTJS_SOURCE } from "../assets/chartjs.js";
@@ -842,8 +843,51 @@ export async function executeTool(
         if (writesHtml) {
           return "[차단됨] HTML/대시보드 파일을 shell(cat/echo/python/node 스크립트 등)로 직접 만들지 마세요. 반드시 write_file 도구로 저장해야 데이터 주입({{BCAVE_DATA:경로}})과 자동 검토가 적용됩니다.";
         }
+        // 개발/프리뷰 서버 명령 감지 — 블로킹 실행 대신 백그라운드로 띄우고 포트 응답을 확인한다.
+        const isDevServer = /(?:^|\s|\&\&|\|\|)\s*(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|dev:server|start:dev)\b/i.test(cmd) ||
+          /\b(?:next|vite|ts-node|tsx|nodemon|pm2 start)\b.*(?:dev|start|watch|index\.ts|server\.ts|index\.js)/i.test(cmd);
+
+        if (isDevServer) {
+          const child = spawn(cmd, { cwd, shell: true, detached: true, stdio: ["ignore", "pipe", "pipe"],
+            env: { ...process.env, NODE_ENV: "development", BROWSER: "none", FORCE_COLOR: "0" } });
+          const logs: string[] = [];
+          child.stdout?.on("data", (b: Buffer) => logs.push(b.toString()));
+          child.stderr?.on("data", (b: Buffer) => logs.push(b.toString()));
+          let exited: number | null = null;
+          child.on("exit", (c) => { exited = c ?? 0; });
+
+          // 포트를 stdout 에서 추출하거나 일반적인 기본 포트를 시도한다
+          const guessPort = (text: string): number[] => {
+            const found = new Set<number>([3000, 5173, 4000, 8000, 8080]);
+            for (const m of text.matchAll(/(?:localhost|127\.0\.0\.1|:)(\d{2,5})\b/g)) found.add(+m[1]);
+            for (const m of text.matchAll(/port[\s:=]+(\d{2,5})/gi)) found.add(+m[1]);
+            return [...found].filter(p => p > 0 && p < 65536);
+          };
+          const ping = (port: number, t = 1200) => new Promise<boolean>(res => {
+            const req = http.get({ host: "127.0.0.1", port, path: "/", timeout: t }, r => { r.destroy(); res(true); });
+            req.on("error", () => res(false)); req.on("timeout", () => { req.destroy(); res(false); });
+          });
+          const deadline = Date.now() + 30_000;
+          let url = "";
+          while (Date.now() < deadline) {
+            if (exited !== null && exited !== 0) break;
+            const text = logs.join("");
+            for (const p of guessPort(text)) { if (await ping(p)) { url = `http://localhost:${p}`; break; } }
+            if (url) break;
+            await new Promise(r => setTimeout(r, 600));
+          }
+          try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* 이미 없음 */ }
+          try { if (child.pid) process.kill(child.pid, "SIGTERM"); } catch { /* 이미 없음 */ }
+          const tail = logs.join("").slice(-1500).trim();
+          if (url) {
+            await resolvePlaceholdersInDir(cwd);
+            return `✓ 서버 기동 확인: ${url}\n로그(끝):\n${tail || "(없음)"}`;
+          }
+          return `서버 응답 없음 (30초 초과).\n로그:\n${tail || "(없음)"}\n\n위 로그를 보고 오류를 수정하세요. 포트가 다르면 명시적 포트 번호로 알려주세요.`;
+        }
+
         const output = await new Promise<string>((resolve) => {
-          const child = exec(args.command as string, {
+          const child = exec(cmd, {
             cwd,
             timeout: 120_000,
             maxBuffer: 10 * 1024 * 1024,
