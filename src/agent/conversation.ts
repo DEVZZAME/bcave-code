@@ -373,12 +373,12 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         // 처음 앱 빌드 요청 → 배포 옵션을 먼저 묻고 턴 종료
         const q =
           "어떤 환경에 배포할 예정인가요? 배포 대상에 따라 DB·스택·설정이 달라집니다.\n\n" +
-          "  1. **Vercel** — Next.js 풀스택, PostgreSQL(Neon/Supabase), 자동 배포\n" +
-          "  2. **Railway** — Node.js + Express, PostgreSQL 올인원, 간편 배포 (추천)\n" +
-          "  3. **Fly.io** — Docker 기반, PostgreSQL, 더 많은 제어\n" +
-          "  4. **AWS / ECS** — EC2·Fargate, RDS PostgreSQL, 대규모·엔터프라이즈\n" +
-          "  5. **VPS / 자체 서버** — Ubuntu + Nginx + Docker Compose, 자체 호스팅\n" +
-          "  6. **로컬 개발용** — 지금은 로컬에서만, 나중에 배포 결정\n\n" +
+          "  1. **Vercel** ✦ 프론트 중심 서비스 추천 — Next.js 풀스택, PostgreSQL(Neon/Supabase), git push 자동 배포, 무료 플랜 있음\n" +
+          "  2. **Railway** ✦ 빠른 풀스택 배포 추천 — Node.js + Express + PostgreSQL 올인원, 설정 최소, 가장 빠른 시작\n" +
+          "  3. **Fly.io** — Docker 기반, PostgreSQL, 리전 선택 가능, 중간 복잡도\n" +
+          "  4. **AWS / ECS** ✦ 대규모·사내 인프라 추천 — EC2·Fargate, RDS PostgreSQL, 최대 제어·확장성\n" +
+          "  5. **VPS / 자체 서버** ✦ 고정 비용·완전 제어 추천 — Ubuntu + Nginx + Docker Compose, 월 고정 비용\n" +
+          "  6. **로컬 개발용** — 지금은 로컬에서만 실행, 배포는 나중에 결정\n\n" +
           "번호나 이름으로 답해 주세요. (예: `2` 또는 `railway`)";
         this.pendingDeployChoice = true;
         this.messages.push({ role: "user", content: userMessage });
