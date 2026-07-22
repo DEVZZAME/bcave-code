@@ -137,13 +137,15 @@ describe("ConversationManager", () => {
     expect(String(presentationContext?.content)).toContain(template);
     expect(String(presentationContext?.content)).toContain(path.join(process.cwd(), "보고서.pptx"));
     expect(String(presentationContext?.content)).toContain("_v2, _final, _verified 같은 별도 PPTX를 만들지 말고");
-    expect(String(presentationContext?.content)).toContain("python-pptx와 Python 생성 스크립트는 사용하지 않는다");
+    expect(String(presentationContext?.content)).toContain("python-pptx와 xml.etree는 사용하지 않는다");
+    expect(String(presentationContext?.content)).toContain("Python 3+lxml");
     expect(String(presentationContext?.content)).toContain("선택 가능한 레이아웃 라이브러리");
     expect(String(presentationContext?.content)).toContain("같은 페이지를 여러 번 복제");
-    expect(String(presentationContext?.content)).toContain("박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지");
+    expect(String(presentationContext?.content)).toContain("꼭 필요한 경우에만 기존 텍스트박스의 폭·높이를 조정");
+    expect(String(presentationContext?.content)).toContain("gridSpan/hMerge");
     expect(String(presentationContext?.content)).toContain("현재 세션 템플릿의 실제 페이지 복제본");
     expect(String(presentationContext?.content)).toContain("최종 위치에는 완성된 .pptx 파일 하나만");
-    expect(String(presentationContext?.content)).toContain("add_textbox/add_shape로 다시 그리지 않는다");
+    expect(String(presentationContext?.content)).toContain("add_textbox/add_shape");
     await run.return(undefined);
     fs.rmSync(template, { force: true });
   });

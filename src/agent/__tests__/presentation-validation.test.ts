@@ -24,7 +24,7 @@ function paragraph(text: string, size = 1800): string {
 }
 
 function tableXml(rows: string[][]): string {
-  return `<p:graphicFrame><a:graphic><a:graphicData><a:tbl>${rows.map((row) => `<a:tr>${row.map((cell) => `<a:tc><a:txBody>${paragraph(cell)}</a:txBody></a:tc>`).join("")}</a:tr>`).join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+  return `<p:graphicFrame><a:graphic><a:graphicData><a:tbl>${rows.map((row) => `<a:tr>${row.map((cell) => cell === "__HMERGE__" ? `<a:tc hMerge="1"><a:txBody>${paragraph("")}</a:txBody></a:tc>` : `<a:tc><a:txBody>${paragraph(cell)}</a:txBody></a:tc>`).join("")}</a:tr>`).join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
 }
 
 function makePptx(name: string, slides: Array<{ paragraphs: Array<string | [string, number]>; table?: string[][]; shapeIds?: number[] }>): string {
@@ -81,6 +81,28 @@ describe("generic presentation gate", () => {
   it("reports the slide, table, and blank cell locations", () => {
     const output = makePptx("empty-table", [{ paragraphs: ["분석"], table: [["항목", "수치"], ["A", ""], ["", ""]] }]);
     expect(emptyTableIssues(output)).toEqual([expect.stringContaining("slide1.xml: 표 1의 본문 빈 셀 3/4")]);
+  });
+
+  it("does not count hMerge continuation cells as empty table cells", () => {
+    const output = makePptx("merged-table", [{
+      paragraphs: ["분석"],
+      table: [["주제", "수치", "설명", "", ""], ["자동화", "24", "대표 의견", "__HMERGE__", "__HMERGE__"]],
+    }]);
+    expect(emptyTableIssues(output, 0)).toEqual([]);
+  });
+
+  it("allows dynamically detected structural text and source-backed coincidental text", () => {
+    const template = makePptx("template-structural", [
+      { paragraphs: ["CONTENTS", "01 Replace section"] },
+      { paragraphs: ["Replace title", "이미지 생성"], table: [["구분", "내용"], ["Replace", "Replace"]] },
+      { paragraphs: ["E.O.D", "감사합니다"] },
+    ]);
+    const output = makePptx("output-structural", [
+      { paragraphs: ["CONTENTS", "01 분석 결과"] },
+      { paragraphs: ["활용 현황", "이미지 생성"], table: [["구분", "내용"], ["도구", "11건"]] },
+      { paragraphs: ["E.O.D", "감사합니다"] },
+    ]);
+    expect(retainedTemplateTextIssues(template, output, ["이미지 생성 AI는 11건"])).toEqual([]);
   });
 
   it("detects a contents item without a matching body section", () => {

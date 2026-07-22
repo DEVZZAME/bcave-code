@@ -58,11 +58,37 @@ function templateEditableTextSet(templatePath: string): Set<string> {
   return new Set([...counts.keys()].filter((text) => !fixed.has(text)));
 }
 
-export function retainedTemplateTextIssues(templatePath: string, outputPath: string): string[] {
+function templateStructuralTextSet(templatePath: string): Set<string> {
+  const slides = pptxRegisteredSlidePaths(templatePath);
+  const structural = new Set<string>();
+  for (const slide of slides) {
+    const xml = unzipText(templatePath, slide);
+    // 표의 첫 행은 데이터가 아니라 열 이름이므로 그대로 유지해도 된다.
+    for (const table of xml.matchAll(/<a:tbl>([\s\S]*?)<\/a:tbl>/g)) {
+      const header = table[1].match(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/)?.[1] ?? "";
+      for (const text of header.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)) structural.add(normalizeText(text[1]));
+    }
+    const runs = pptxSlideTextRuns(templatePath, slide);
+    const tocMarker = runs.find((text) => /^(?:contents|목차)$/i.test(text));
+    if (tocMarker) structural.add(tocMarker);
+    for (const text of runs) if (/^[^\p{L}\p{N}]+$/u.test(text)) structural.add(text);
+  }
+  // 마지막 슬라이드가 E.O.D 같은 약어형 종결 마커를 가진 간결한 엔딩이면 해당 문구는 고정 요소다.
+  const endingRuns = slides.length ? pptxSlideTextRuns(templatePath, slides[slides.length - 1]) : [];
+  if (endingRuns.length <= 3 && endingRuns.some((text) => text.includes(".") && /^(?:[A-Z]\.?){2,}$/i.test(text))) {
+    for (const text of endingRuns) structural.add(text);
+  }
+  return structural;
+}
+
+export function retainedTemplateTextIssues(templatePath: string, outputPath: string, sourceTexts: string[] = []): string[] {
   const sourceText = templateEditableTextSet(templatePath);
+  const structuralText = templateStructuralTextSet(templatePath);
   const issues: string[] = [];
   for (const slide of pptxRegisteredSlidePaths(outputPath)) {
-    const retained = [...new Set(pptxSlideTextRuns(outputPath, slide).filter((text) => sourceText.has(text)))];
+    const retained = [...new Set(pptxSlideTextRuns(outputPath, slide).filter((text) =>
+      sourceText.has(text) && !structuralText.has(text) && !sourceTexts.some((source) => normalizeText(source).includes(text)),
+    ))];
     for (const text of retained.slice(0, 8)) issues.push(`${path.posix.basename(slide)}: 템플릿 원문 '${text}' 잔존`);
   }
   return issues;
@@ -127,9 +153,10 @@ export function emptyTableIssues(outputPath: string, threshold = 0.2): string[] 
       const blanks: string[] = [];
       let bodyCells = 0;
       rows.slice(1).forEach((row, rowIndex) => {
-        [...row[1].matchAll(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>/g)].forEach((cell, columnIndex) => {
+        [...row[1].matchAll(/<a:tc\b([^>]*)>([\s\S]*?)<\/a:tc>/g)].forEach((cell, columnIndex) => {
+          if (/\bhMerge="1"/.test(cell[1])) return;
           bodyCells++;
-          const value = normalizeText([...cell[1].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((match) => match[1]).join(""));
+          const value = normalizeText([...cell[2].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((match) => match[1]).join(""));
           if (!value) blanks.push(`행 ${rowIndex + 2} 열 ${columnIndex + 1}`);
         });
       });
@@ -244,7 +271,7 @@ export function validatePresentationGate(templatePath: string, outputPath: strin
   return [
     ...appendedTemplateDeckIssues(templatePath, outputPath),
     ...newShapeIssues(templatePath, outputPath),
-    ...retainedTemplateTextIssues(templatePath, outputPath),
+    ...retainedTemplateTextIssues(templatePath, outputPath, sourceTexts),
     ...emptyTableIssues(outputPath),
     ...tocBodyIssues(outputPath),
     ...dataReflectionIssues(outputPath, sourceTexts),

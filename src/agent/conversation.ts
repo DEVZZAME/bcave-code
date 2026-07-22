@@ -98,12 +98,19 @@ function pptxSlideShapeMap(filePath: string, slidePath: string): Map<string, str
 }
 
 function pptxSlideVisualSignature(filePath: string, slidePath: string): string {
-  const xml = unzipText(filePath, slidePath).replace(/<p:txBody>[\s\S]*?<\/p:txBody>/g, "<p:txBody/>");
+  const xml = unzipText(filePath, slidePath)
+    // 표 행 복제·높이 조정·gridSpan/hMerge는 허용된 내용 적응이므로 표 내부는 외형 대조에서 제외한다.
+    .replace(/<a:tbl>[\s\S]*?<\/a:tbl>/g, "<a:tbl/>")
+    // 텍스트박스는 위치를 유지하는 한 내용에 맞춘 폭·높이 변경을 허용한다.
+    .replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (shape) => shape
+      .replace(/<p:txBody>[\s\S]*?<\/p:txBody>/g, "<p:txBody/>")
+      .replace(/<a:ext\b[^>]*\/>/g, "<a:ext/>"));
   const visualParts = [
-    ...xml.matchAll(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/g),
-    ...xml.matchAll(/<a:(?:solidFill|gradFill|pattFill|noFill|prstGeom|custGeom|ln)\b[^>]*>[\s\S]*?<\/a:(?:solidFill|gradFill|pattFill|noFill|prstGeom|custGeom|ln)>/g),
+    ...[...xml.matchAll(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/g)].map((match) => match[0]),
+    ...[...xml.matchAll(/<a:(solidFill|gradFill|pattFill|prstGeom|custGeom|ln)\b[^>]*>[\s\S]*?<\/a:\1>/g)].map((match) => match[0]),
+    ...[...xml.matchAll(/<a:(?:noFill|solidFill|gradFill|pattFill)\b[^>]*\/>/g)].map((match) => match[0]),
   ];
-  return visualParts.map((match) => match[0].replace(/\s+/g, "")).join("|");
+  return visualParts.map((part) => part.replace(/\s+/g, "")).join("|");
 }
 
 export function pptxTemplateFidelityIssues(templatePath: string, outputPath: string): string[] {
@@ -920,11 +927,12 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         `원본의 ${pptxSlideCount(presentationTemplatePath)}장은 선택 가능한 레이아웃 라이브러리다. 모든 원본 슬라이드를 먼저 살펴보고 완성본의 각 페이지에 가장 적합한 원본 페이지를 복제한다. 같은 페이지를 여러 번 복제할 수 있고 페이지 수는 내용에 맞게 정한다. ` +
         "허용 조작은 다음뿐이다: 템플릿 복사본에서 시작하고, 미사용 슬라이드는 ppt/presentation.xml의 <p:sldIdLst>에서 제거하며, 필요한 슬라이드는 기존 슬라이드 XML과 관계 파일을 복제하고 관계를 등록한다. 텍스트는 기존 <a:t> 런의 내용만 교체한다. 표는 기존 <a:tbl> 셀의 <a:t>만 교체하고 행이 부족할 때만 기존 <a:tr>을 복제한다. 마지막에는 새 ZIP 패키지로 재저장한다. " +
         "금지 조작: 새 <p:sp> 도형·텍스트박스 추가, add_textbox/add_shape, text_frame.clear, 기존 안내문구 위 덧대기, 원본 전체를 완성본 앞에 남긴 뒤 새 페이지 붙이기, 이전 산출물 재활용. 빈 레이아웃이나 독자적인 디자인을 새로 만들지 않으며 모든 완성 페이지는 현재 세션 템플릿의 실제 페이지 복제본이어야 한다. " +
-        "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 도형, 박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지하고 복제된 페이지의 기존 텍스트 내용만 해당 요소 안에서 교체한다. 모든 텍스트를 일괄 삭제하거나 add_textbox/add_shape로 다시 그리지 않는다. 내용이 길면 문장을 요약하거나 동일·다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
+        "도형 역할은 이름만 믿지 말고 좌표·폰트 크기·슬라이드 내 위치로 판별한다. 원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소와 도형 위치를 유지한다. 텍스트가 맞지 않을 때는 먼저 문장을 줄이거나 다른 템플릿 페이지로 나누고, 꼭 필요한 경우에만 기존 텍스트박스의 폭·높이를 조정한다. 새 도형을 추가하지 않는다. " +
+        "표 행이 부족하면 첫 데이터 <a:tr>을 deepcopy하고 콘텐츠 양에 맞춰 데이터 행 높이를 함께 재계산한다. 열 수를 줄일 때 gridCol을 삭제하지 말고 기존 셀의 gridSpan/hMerge로 병합하며, hMerge 연속 셀은 의도적인 빈 셀이다. 빈 셀에 런이 없으면 endParaRPr 서식을 복제해 <a:r>을 만든다. " +
         "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
         "presentation.xml의 <p:sldIdLst> 자체를 비우거나 <p:sldIdLst/>로 저장하지 않는다. 최종 슬라이드마다 presentation.xml의 <p:sldId>와 presentation.xml.rels의 slide 관계가 함께 존재해야 하며, 패키징 후 등록 슬라이드 수를 직접 확인한다. " +
         "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
-        "필요하면 생성 스크립트(.js/.mjs)를 운영체제 임시 폴더에 작성한다. python-pptx와 Python 생성 스크립트는 사용하지 않는다. 한글을 포함한 임시 스크립트는 UTF-8로 저장한다. 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
+        "필요하면 생성 스크립트(.js/.mjs 또는 Python 3+lxml)를 운영체제 임시 폴더에 작성한다. python-pptx와 xml.etree는 사용하지 않는다. Python은 반드시 python3로 실행하고 첫 줄에 UTF-8 인코딩을 선언한다. 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
         "원문에 없는 사실을 채우지 않는다. 완료 전 모든 결과 페이지가 세션 템플릿의 복제본인지, 이미지 관계가 유효한지, 템플릿 원문이 편집되지 않은 채 남지 않았는지, 표가 채워졌는지, 목차와 본문이 일치하는지, 읽은 원본 자료의 수치가 반영됐는지 검사한다.");
     }
     if (appBuild || this.applicationActive) {
