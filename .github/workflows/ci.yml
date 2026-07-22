@@ -31,5 +31,5 @@ jobs:
         run: bash -n install.sh
       - name: Validate Windows installer syntax
         if: runner.os == 'Windows'
-        shell: powershell
-        run: '[scriptblock]::Create((Get-Content -Raw install.ps1)) | Out-Null'
+        shell: pwsh
+        run: '[scriptblock]::Create((Get-Content -Raw -Encoding utf8 install.ps1)) | Out-Null'
