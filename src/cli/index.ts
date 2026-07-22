@@ -205,7 +205,7 @@ async function showSelector(items: SelectorItem[], initialIndex = 0): Promise<nu
         process.stdout.write(`\x1b[${linesDrawn}A`);
       }
       showCursor();
-      process.stdin.removeListener("data", onData);
+      process.stdin.removeListener("keypress", onKeypress);
       try { process.stdin.setRawMode(prevRawMode ?? false); } catch { /* noop */ }
       try { rl.resume(); } catch { /* noop */ }
       // readline 버퍼 초기화
@@ -215,28 +215,26 @@ async function showSelector(items: SelectorItem[], initialIndex = 0): Promise<nu
       resolve(result);
     }
 
-    // stdin을 raw 바이트로 직접 읽음 → readline 에코 간섭 없음
-    const onData = (buf: Buffer) => {
-      const b = buf[0];
-      const seq = buf.toString();
-
-      if (seq === "\x1b[A" || b === 0x41 && buf[0] === 0x1b) { // up
+    // Node의 keypress 파서를 사용한다. 방향키의 ESC/[A 바이트가 서로 다른
+    // data 청크로 들어와도 완성된 하나의 up/down 키로 전달되므로 ESC 취소와 섞이지 않는다.
+    const onKeypress = (str: string, key: readline.Key) => {
+      if (key?.name === "up") {
         selected = (selected - 1 + count) % count;
         render();
-      } else if (seq === "\x1b[B") { // down
+      } else if (key?.name === "down") {
         selected = (selected + 1) % count;
         render();
-      } else if (b === 0x0d || b === 0x0a) { // enter
+      } else if (key?.name === "return" || key?.name === "enter") {
         cleanup(selected);
-      } else if (b === 0x1b && buf.length === 1) { // esc
+      } else if (key?.name === "escape") {
         cleanup(-1);
-      } else if (b >= 0x30 && b <= 0x39) { // 0-9 숫자
-        const n = b - 0x30;
+      } else if (/^[0-9]$/.test(str)) {
+        const n = Number(str);
         if (n >= 0 && n < count) { selected = n; cleanup(selected); }
       }
     };
 
-    process.stdin.on("data", onData);
+    process.stdin.on("keypress", onKeypress);
     render();
   });
 }
