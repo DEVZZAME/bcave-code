@@ -445,6 +445,7 @@ function toolResultLine(name: string, result: string): string | null {
 }
 
 function friendlyVerifyLabel(cmd: string): string {
+  if (/화면 기능|완성도/.test(cmd)) return "화면에 보이는 기능이 모두 동작하는지 확인";
   if (/스키마|DB/i.test(cmd)) return "입력한 내용이 저장되는지 확인";
   if (/proxy|API/i.test(cmd)) return "화면과 데이터가 연결되는지 확인";
   if (/서버|스모크|health/i.test(cmd)) return "서비스가 실제로 열리는지 확인";

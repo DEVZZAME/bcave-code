@@ -89,6 +89,71 @@ export function validateApiResponse(pathname: string, status: number, body: stri
   return null;
 }
 
+/** 화면에 보이는 가짜/미연결 동작을 정적으로 탐지한다. */
+export function auditUiSource(source: string, filename = "UI"): string[] {
+  const issues: string[] = [];
+  for (const match of source.matchAll(/<a\b([^>]*)>/g)) {
+    const attrs = match[1];
+    if (!/\b(?:href|onClick)\s*=/.test(attrs)) issues.push(`${filename}: 이동 기능이 없는 메뉴/링크가 있습니다.`);
+    if (/\bhref\s*=\s*["']#(?:["']|\s)/.test(attrs)) issues.push(`${filename}: 임시 주소(#)만 연결된 링크가 있습니다.`);
+  }
+  if (/onClick\s*=\s*\{\s*\(?(?:\w+)?\)?\s*=>\s*\{\s*\}\s*\}/.test(source)) {
+    issues.push(`${filename}: 눌러도 아무 동작을 하지 않는 버튼이 있습니다.`);
+  }
+  if (/\btrend\s*=\s*["'][+−-]?\d+(?:\.\d+)?%["']/.test(source)) {
+    issues.push(`${filename}: 실제 데이터와 연결되지 않은 고정 증감률이 표시됩니다.`);
+  }
+  if (/\b(?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),\s+(?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{1,2},\s+20\d{2}\b/i.test(source)) {
+    issues.push(`${filename}: 오늘 날짜가 실제 시간이 아닌 고정 문구로 표시됩니다.`);
+  }
+  return [...new Set(issues)];
+}
+
+function sourceFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (["node_modules", "dist", "build", ".next", ".git"].includes(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(full));
+    else if (/\.(?:tsx|jsx|vue|svelte)$/.test(entry.name) && !/\.test\./.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
+/** 보이는 기능과 실제 구현/완성 주장이 일치하는지 검사한다. */
+export function auditAppCompleteness(cwd: string): string[] {
+  const issues = sourceFiles(path.join(cwd, "src")).flatMap((file) =>
+    auditUiSource(fs.readFileSync(file, "utf8"), path.relative(cwd, file)),
+  );
+  const readmePath = path.join(cwd, "README.md");
+  const readme = fs.existsSync(readmePath) ? fs.readFileSync(readmePath, "utf8") : "";
+  if (/\bCRUD\b/i.test(readme)) {
+    const serverDirs = [path.join(cwd, "server"), path.join(cwd, "src", "server")];
+    const serverText = serverDirs.flatMap((dir) => {
+      if (!fs.existsSync(dir)) return [];
+      return fs.readdirSync(dir).filter((name) => /\.(?:ts|js)$/.test(name)).map((name) => fs.readFileSync(path.join(dir, name), "utf8"));
+    }).join("\n");
+    if (!/\.\s*(?:put|patch)\s*\(/i.test(serverText) || !/\.\s*delete\s*\(/i.test(serverText)) {
+      issues.push("README에는 CRUD 완성이라고 되어 있지만 수정 또는 삭제 기능이 구현되지 않았습니다.");
+    }
+  }
+  if (/\.env\.example/.test(readme) && !fs.existsSync(path.join(cwd, ".env.example"))) {
+    issues.push("실행 안내에 .env.example이 필요하다고 되어 있지만 파일이 없습니다.");
+  }
+  const packagePath = path.join(cwd, "package.json");
+  if (fs.existsSync(packagePath)) {
+    try {
+      const scripts = (JSON.parse(fs.readFileSync(packagePath, "utf8")).scripts || {}) as Record<string, string>;
+      const startTarget = scripts.start?.match(/^node\s+([^\s]+)/)?.[1];
+      if (startTarget && !fs.existsSync(path.resolve(cwd, startTarget))) {
+        issues.push(`서비스 실행 명령이 존재하지 않는 파일(${startTarget})을 가리킵니다.`);
+      }
+    } catch { /* package.json 파싱 오류는 빌드 검증에서 처리 */ }
+  }
+  return [...new Set(issues)];
+}
+
 /** 앱을 실제로 띄워 응답하는지 확인(스모크). 시작 명령이 없으면 완료 조건 실패. */
 export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<{ ok: boolean; skipped?: boolean; detail: string; startCmd: string }> {
   const startCmd = detectStartCommand(cwd);
@@ -220,6 +285,7 @@ export class ConversationManager {
 ARTIFACT vs APP: Real service/app (backend+API+DB+auth) → multi-file project. Standalone dashboard/report/landing → single self-contained HTML. Never fake data with static arrays.
 DB RULES: (1) SQLite: use better-sqlite3 DIRECTLY (not Prisma) — Prisma 7 removed native SQLite, the adapter(@prisma/adapter-better-sqlite3) is complex and error-prone. (2) PostgreSQL: use Prisma with provider="postgresql" OR pg package directly. NEVER mix SQLite adapter with Prisma 7. (3) Non-local deployments (Railway/Vercel/Fly/AWS): ALWAYS PostgreSQL — no SQLite regardless of environment. Get dev DATABASE_URL from Neon/Supabase free tier. (4) Vite+Express: ALWAYS add proxy in vite.config.ts: server:{proxy:{'/api':{target:'http://localhost:PORT',changeOrigin:true}}} — without this all fetch('/api') calls go to Vite port instead of backend.
 API CONTRACT (prevents "Unexpected end of JSON input"): (1) Every API endpoint MUST always return JSON — use res.json() even for errors, NEVER res.end() or res.send() with empty body except 204. (2) Add a global error handler: app.use((err,req,res,next)=>{res.status(err.status||500).json({message:err.message||'서버 오류'})}). (3) Frontend fetch MUST check response.ok before .json(): const r=await fetch(url,opts); if(!r.ok){const e=await r.json().catch(()=>({message:'서버 오류'})); throw new Error(e.message);} return r.json(). (4) Wrap every fetch call in try/catch and show the error message to the user (never swallow errors silently).
+COMPLETENESS: Every visible button, menu, tab, link, dropdown, search/filter, form, and table row action MUST work. Do not render future/placeholder navigation as interactive controls. Never show fabricated dates, percentages, trends, counts, statuses, or "auto saved" labels; derive them from real data/state. Do not claim CRUD unless create/read/update/delete all exist in both UI and API. Before completion, inventory every visible interactive element and exercise its connected path.
 UI: Follow existing stack. No stack → Tailwind CSS + shadcn/ui default. No arbitrary hex/inline styles.
 UI QUALITY: (1) contrast≥4.5:1, alt text, keyboard nav, aria-labels, no remove focus rings (2) tap≥44×44px, loading feedback, no hover-only (3) SVG icons, Tailwind tokens (4) mobile-first, viewport meta, no horizontal scroll (5) body≥16px/1.5lh, no gray-on-gray (6) animation 150-300ms, prefers-reduced-motion (7) visible labels, inline errors, disable submit on load (8) predictable back, bottom-nav≤5.
 WIRING: new page→add route+nav link; new API→frontend fetch+error; new component→import+render; schema change→migration. Read router/server after writing to confirm wire.
@@ -808,6 +874,26 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
                 continue;
               }
             }
+          }
+          // A-1.5c) 화면 완성도 검사: 보이기만 하고 동작하지 않는 메뉴, 고정 지표,
+          // 문서의 과장된 CRUD 주장을 완료 전에 차단한다.
+          if (this.applicationActive && this.config.autoVerify && codeTouched) {
+            const completenessIssues = auditAppCompleteness(this.cwd);
+            if (completenessIssues.length > 0) {
+              if (verifyRounds >= this.config.maxVerifyRounds) {
+                yield { type: "error", message: `화면 기능 연결 확인에 실패해 완료 처리하지 않았습니다.\n${completenessIssues.join("\n")}` };
+                return;
+              }
+              verifyRounds++;
+              codeTouched = false;
+              const detail = `[화면 완성도 확인 실패]\n${completenessIssues.map((issue) => `- ${issue}`).join("\n")}\n\n화면에 보이는 모든 메뉴·버튼·지표를 실제 기능/데이터에 연결하세요. 구현하지 않을 항목은 클릭 가능한 UI와 완성 주장 모두에서 제거하세요.`;
+              this.messages.push({ role: "assistant", content: message.content ?? "" });
+              this.messages.push({ role: "user", content: detail });
+              yield { type: "verify", status: "fail", cmd: "화면 기능 연결 확인", detail };
+              lastText = "";
+              continue;
+            }
+            yield { type: "verify", status: "pass", cmd: "화면 기능 연결 확인" };
           }
           // A-2) 앱이면 서버를 실제로 띄워 HTTP 응답(헬스체크)까지 확인. 실패 시 로그를 되먹여 고친다.
           if (this.applicationActive && this.config.autoVerify && this.config.smokeTest && codeTouched && !signal?.aborted) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ConversationManager, validateApiResponse } from "../conversation.js";
+import { auditUiSource, ConversationManager, validateApiResponse } from "../conversation.js";
 import { PermissionManager } from "../permissions.js";
 
 const config = {
@@ -162,5 +162,19 @@ describe("ConversationManager", () => {
     expect(validateApiResponse("/api/health", 404, '{"message":"missing"}', true)).toContain("HTTP 404");
     expect(validateApiResponse("/api/health", 200, "<html>not json</html>", true)).toContain("JSON 파싱 불가");
     expect(validateApiResponse("/api/health", 200, "", true)).toContain("빈 응답");
+  });
+
+  it("rejects visible placeholder navigation and fabricated dashboard values", () => {
+    const issues = auditUiSource(`
+      <nav><a className="active">Overview</a><a href="#">Products</a></nav>
+      <Metric trend="+12.5%" />
+      <p>TUESDAY, JUNE 24, 2025</p>
+    `, "src/main.tsx");
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.stringContaining("이동 기능이 없는"),
+      expect.stringContaining("임시 주소"),
+      expect.stringContaining("고정 증감률"),
+      expect.stringContaining("고정 문구"),
+    ]));
   });
 });
