@@ -7,14 +7,19 @@ import { configFileIssues, loadConfig, saveConfig, type BcaveConfig } from "../c
 describe("Config", () => {
   const testDir = path.join(os.tmpdir(), "bcave-test-" + Date.now());
   const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
 
   beforeEach(() => {
     process.env.HOME = testDir;
+    process.env.USERPROFILE = testDir;
     fs.mkdirSync(testDir, { recursive: true });
   });
 
   afterEach(() => {
-    process.env.HOME = originalHome;
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 

@@ -1,11 +1,13 @@
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { resolveInstallDir, updateCommand } from "../updater.js";
 
 describe("updater", () => {
   it("resolves the repository root from a compiled CLI module URL", () => {
-    const root = resolveInstallDir("file:///opt/bcave/dist/cli/updater.js");
-    expect(root).toBe(path.resolve("/opt/bcave"));
+    const expectedRoot = path.join(path.parse(process.cwd()).root, "opt", "bcave");
+    const moduleUrl = pathToFileURL(path.join(expectedRoot, "dist", "cli", "updater.js")).href;
+    expect(resolveInstallDir(moduleUrl)).toBe(expectedRoot);
   });
 
   it("uses bash installer on macOS and Linux", () => {
