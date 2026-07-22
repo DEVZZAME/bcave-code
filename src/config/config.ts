@@ -10,6 +10,10 @@ export interface BcaveConfig {
   userEmail: string; // 로그인된 사용자 이메일 (표시용)
   userName: string; // 로그인된 사용자 이름 (표시용)
 
+  // 로컬 LLM 게이트웨이 주소 (설정되면 LLM 요청을 hubUrl 대신 이 주소로 보낸다)
+  // 인증(로그인/갱신)은 여전히 hubUrl(bcave-service-hub) 을 사용.
+  llmUrl: string; // 예: "http://127.0.0.1:4000"  — 비우면 hubUrl 로 fall-through
+
   model: string; // 수동/기본 모델 (autoRoute off 일 때 사용)
 
   // ── 용도별 자동 모델 라우팅 ──
@@ -36,8 +40,12 @@ const DEFAULT_CONFIG: BcaveConfig = {
   refreshToken: "",
   userEmail: "",
   userName: "",
-  // 기본 모델: qwen3-coder (자체 호스팅 Qwen3-Coder-30B-A3B, 에이전틱 코딩 특화, 131K 컨텍스트)
-  // 롤백: /model gpt-5.4-mini 명령으로 즉시 전환 가능
+  // 로컬 LLM 게이트웨이 주소 (bcave-llm-gateway)
+  // 설정하면 LLM 요청이 bcave-service-hub 대신 로컬로 간다. 비우면 기존 HUB 경유.
+  llmUrl: "http://127.0.0.1:4000",
+
+  // 기본 모델: qwen3-coder (Qwen3-Coder-30B-A3B, Ollama 로컬 서빙)
+  // 롤백: /model gpt-5.4-mini + /llm-url "" 으로 HUB 경유 복구
   model: "qwen3-coder",
   autoRoute: false,
   modelHeavy: "qwen3-coder",

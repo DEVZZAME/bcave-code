@@ -101,6 +101,7 @@ const COMMANDS = [
   { name: "/model", desc: "모델 선택 (qwen3-coder 기본 · gpt-5.4-mini 폴백 · auto 용도별 라우팅)" },
   { name: "/verify", desc: "코드 수정 후 자동 검증-수정 루프 on/off" },
   { name: "/smoke", desc: "앱 생성 후 서버 띄워 헬스체크 on/off" },
+  { name: "/llm-url", desc: "로컬 LLM 게이트웨이 주소 설정 (비우면 HUB 경유 복귀)" },
   { name: "/usage", desc: "사용량/한도 확인" },
   { name: "/login", desc: "사내 계정 로그인" },
   { name: "/logout", desc: "로그아웃" },
@@ -888,6 +889,20 @@ async function handleSlashCommand(text: string): Promise<boolean> {
     return true;
   }
 
+  if (trimmed === "/llm-url" || trimmed.startsWith("/llm-url ")) {
+    const arg = trimmed.slice(8).trim();
+    if (arg) {
+      saveConfig({ llmUrl: arg });
+      config = loadConfig(); rebuildCM();
+      console.log(chalk.green(`  ✓ LLM 게이트웨이 → ${arg}`) + chalk.dim("  (HUB 인증은 유지, LLM 요청만 로컬로)"));
+    } else {
+      saveConfig({ llmUrl: "" });
+      config = loadConfig(); rebuildCM();
+      console.log(chalk.green("  ✓ LLM 게이트웨이 초기화") + chalk.dim("  (HUB 경유로 복귀)"));
+    }
+    return true;
+  }
+
   if (trimmed === "/smoke" || trimmed.startsWith("/smoke ")) {
     const arg = trimmed.slice(6).trim().toLowerCase();
     if (arg === "on" || arg === "off") {
@@ -1152,7 +1167,8 @@ async function main(): Promise<void> {
   console.log("");
   const who = isLoggedIn(config) ? `  ·  ${config.userName || config.userEmail}` : "";
   const modelLabel = config.autoRoute ? `자동(${config.modelHeavy} · ${config.modelLight})` : config.model;
-  console.log("  " + chalk.dim(`v0.1.0  ·  ${modelLabel}  ·  ${process.cwd()}${who}`));
+  const llmLabel = config.llmUrl ? ` · LLM:${config.llmUrl}` : "";
+  console.log("  " + chalk.dim(`v0.1.0  ·  ${modelLabel}${llmLabel}  ·  ${process.cwd()}${who}`));
   console.log("  " + chalk.dim("Shift+Tab 모드 전환  ·  /help 명령어  ·  Ctrl+C 종료"));
   console.log("");
 

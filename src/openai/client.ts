@@ -4,22 +4,36 @@ import type { ChatCompletionMessageParam, ChatCompletion } from "openai/resource
 import type { BcaveConfig } from "../config/config.js";
 import { TOOL_DEFINITIONS } from "../agent/tools.js";
 
-/** 게이트웨이(로그인) 모드에서 사용할 baseURL */
+/** 인증(로그인/갱신) 전용 — 항상 bcave-service-hub */
+export function hubAuthBaseUrl(config: BcaveConfig): string {
+  return `${config.hubUrl.replace(/\/+$/, "")}/api`;
+}
+
+/** LLM 요청 baseURL 결정:
+ *  - llmUrl 이 설정된 경우 → 로컬 게이트웨이 (bcave-llm-gateway)
+ *  - 비어있으면 → 기존 HUB(/api/v1) 경유 (fall-through, 기존 동작 유지)
+ */
+export function llmBaseUrl(config: BcaveConfig): string {
+  const local = config.llmUrl?.trim();
+  if (local) return local.replace(/\/+$/, "");
+  return `${config.hubUrl.replace(/\/+$/, "")}/api/v1`;
+}
+
+/** 하위 호환용 alias (auth 코드가 참조) */
 export function gatewayBaseUrl(config: BcaveConfig): string {
   return `${config.hubUrl.replace(/\/+$/, "")}/api/v1`;
 }
 
 /**
- * 항상 HUB 게이트웨이를 경유한다 (로그인 필수).
- * apiKey 자리에 HUB Access Token 을 실어 보내며, 실제 OpenAI 키는 서버에만 존재한다.
- * → 직접 OpenAI 로 붙는 경로는 존재하지 않는다 (사용량 집계/쿼터/RBAC 우회 불가).
+ * LLM 요청용 OpenAI 클라이언트.
+ * llmUrl 이 설정되면 로컬 게이트웨이로 직접 연결하고,
+ * 없으면 기존 HUB 게이트웨이를 경유한다.
+ * 두 경우 모두 apiKey 자리에 HUB Access Token 을 보내며, 실제 모델 키는 서버에만 존재한다.
  */
 export function createOpenAIClient(config: BcaveConfig): OpenAI {
   return new OpenAI({
     apiKey: config.accessToken,
-    baseURL: gatewayBaseUrl(config),
-    // 아래 chat()에서 Retry-After와 조직 쿨다운을 반영해 직접 재시도한다.
-    // SDK 기본 재시도(2회)와 중첩되면 한 번의 호출이 요청 폭주로 이어질 수 있다.
+    baseURL: llmBaseUrl(config),
     maxRetries: 0,
   });
 }
