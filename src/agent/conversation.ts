@@ -658,6 +658,36 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             }
             yield { type: "verify", status: "pass", cmd: verifyCmds.join(" && ") };
           }
+          // A-1.5) Vite 프록시 설정 검증: 프론트(Vite)와 백엔드(Express 등)가 분리된 구조에서
+          //   vite.config.ts 에 /api 프록시가 없으면 프론트의 fetch('/api/...') 가 백엔드로 안 가고
+          //   "Unexpected end of JSON" / CORS 오류가 난다.
+          if (appBuild && this.config.autoVerify && codeTouched) {
+            const viteConfig = path.join(this.cwd, "vite.config.ts");
+            const viteConfigJs = path.join(this.cwd, "vite.config.js");
+            const viteCfgPath = fs.existsSync(viteConfig) ? viteConfig : fs.existsSync(viteConfigJs) ? viteConfigJs : null;
+            if (viteCfgPath) {
+              const viteCfg = fs.readFileSync(viteCfgPath, "utf8");
+              const hasBackend = fs.existsSync(path.join(this.cwd, "server")) || fs.existsSync(path.join(this.cwd, "src/server"));
+              const hasProxy = /proxy\s*:\s*\{/.test(viteCfg);
+              const fetchesApi = (() => {
+                try {
+                  const src = path.join(this.cwd, "src");
+                  const files = fs.readdirSync(src).filter(f => /\.(ts|tsx|js|jsx)$/.test(f));
+                  return files.some(f => fs.readFileSync(path.join(src, f), "utf8").includes("fetch('/api"));
+                } catch { return false; }
+              })();
+              if (hasBackend && fetchesApi && !hasProxy && verifyRounds < this.config.maxVerifyRounds) {
+                verifyRounds++;
+                codeTouched = false;
+                const issue = `[Vite 프록시 누락] 프론트(Vite)에서 fetch('/api/...')를 호출하지만 vite.config.ts 에 proxy 설정이 없습니다.\nVite 개발 서버(5173)는 /api 요청을 백엔드(예: 3001)로 전달하지 않아 "Failed to fetch" / "Unexpected end of JSON" 오류가 발생합니다.\n\n${viteCfgPath} 에 다음을 추가하세요:\nserver: { proxy: { '/api': { target: 'http://localhost:3001', changeOrigin: true } } }`;
+                this.messages.push({ role: "assistant", content: message.content ?? "" });
+                this.messages.push({ role: "user", content: issue });
+                yield { type: "verify", status: "fail", cmd: "Vite proxy 검증", detail: issue };
+                lastText = "";
+                continue;
+              }
+            }
+          }
           // A-2) 앱이면 서버를 실제로 띄워 HTTP 응답(헬스체크)까지 확인. 실패 시 로그를 되먹여 고친다.
           if (appBuild && this.config.autoVerify && this.config.smokeTest && codeTouched && verifyRounds < this.config.maxVerifyRounds && !signal?.aborted) {
             yield { type: "verify", status: "run", cmd: "서버 실행 헬스체크(스모크)" };
