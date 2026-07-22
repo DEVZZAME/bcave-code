@@ -48,6 +48,38 @@ function pptxRetainedGuideText(filePath: string): string[] {
   return guidePhrases.filter((phrase) => xml.includes(phrase));
 }
 
+function unzipText(filePath: string, entry: string): string {
+  const result = spawnSync("unzip", ["-p", filePath, entry], { encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+  return result.status === 0 ? String(result.stdout) : "";
+}
+
+function pptxRegisteredSlidePaths(filePath: string): string[] {
+  const presentation = unzipText(filePath, "ppt/presentation.xml");
+  const relationships = unzipText(filePath, "ppt/_rels/presentation.xml.rels");
+  const targets = new Map<string, string>();
+  for (const match of relationships.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bType="[^"]+\/slide"[^>]*\bTarget="([^"]+)"[^>]*\/?\s*>/g)) {
+    targets.set(match[1], path.posix.normalize(`ppt/${match[2]}`));
+  }
+  return [...presentation.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"[^>]*>/g)].map((match) => targets.get(match[1]) ?? "").filter(Boolean);
+}
+
+function pptxSlideShapeSignature(filePath: string, slidePath: string): string {
+  const xml = unzipText(filePath, slidePath);
+  return [...xml.matchAll(/<(?:p|a):cNvPr\b[^>]*\bid="(\d+)"/g)].map((match) => match[1]).sort((a, b) => Number(a) - Number(b)).join(",");
+}
+
+function pptxTemplateFidelityIssues(templatePath: string, outputPath: string): string[] {
+  const sourceSlides = pptxRegisteredSlidePaths(templatePath);
+  const allowedSourceSlides = sourceSlides.filter((_, index) => index !== 3); // 원본 4페이지는 제작 사용법
+  const allowedSignatures = new Set(allowedSourceSlides.map((slide) => pptxSlideShapeSignature(templatePath, slide)).filter(Boolean));
+  const outputSlides = pptxRegisteredSlidePaths(outputPath);
+  const unmatched = outputSlides.map((slide, index) => ({ index: index + 1, signature: pptxSlideShapeSignature(outputPath, slide) }))
+    .filter(({ signature }) => !signature || !allowedSignatures.has(signature)).map(({ index }) => index);
+  return unmatched.length
+    ? [`${unmatched.slice(0, 8).join(", ")}페이지가 원본 템플릿 슬라이드의 구성요소를 그대로 복제하지 않았습니다. 기존 요소를 전부 지우거나 새 텍스트 박스로 다시 그리면 안 됩니다.`]
+    : [];
+}
+
 function presentationFilesIn(directories: string[]): string[] {
   const files: string[] = [];
   for (const directory of [...new Set(directories)]) {
@@ -751,9 +783,11 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         "[PRESENTATION_CONTEXT]\n이 요청의 산출물은 PowerPoint 프레젠테이션(.pptx)이다. HTML, 대시보드, 웹페이지를 만들지 않는다. " +
         `첨부/지정 문서의 내용을 요약·구조화하고 \`${PRESENTATION_TEMPLATE_PATH}\`를 편집 원본으로 사용한다. ` +
         `원본의 ${pptxSlideCount(PRESENTATION_TEMPLATE_PATH)}장은 완성본에 그대로 남기는 페이지가 아니라 선택 가능한 레이아웃 템플릿 라이브러리다. 먼저 모든 원본 슬라이드를 살펴보고, 완성본의 각 페이지마다 가장 적합한 원본 슬라이드 번호를 정한 뒤 해당 슬라이드를 복제하여 사용한다. 같은 원본 슬라이드를 여러 번 복제해도 되고 완성본의 페이지 수는 내용에 맞게 정한다. ` +
+        "원본 4페이지는 템플릿 사용법과 색상·폰트 지침을 설명하는 가이드 페이지다. 지침은 반드시 따르되 완성본 페이지의 레이아웃 후보로 복제하지 않는다. 사용할 수 있는 원본 페이지는 1~3, 5~10페이지다. " +
         "원본 1~10장을 앞에 그대로 둔 채 결과 페이지를 뒤에 붙이지 않는다. 빈 레이아웃에서 슬라이드를 만들거나 독자적인 디자인을 새로 그리지 않으며, 완성본의 모든 페이지는 반드시 원본 1~10장 중 하나를 복제한 페이지여야 한다. " +
-        "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 제목/본문 위계를 유지하고 복제된 페이지의 기존 텍스트·표·이미지를 교체한다. 내용에 맞춰 기존 텍스트 박스와 이미지 박스의 크기 및 위치를 키우거나 줄이는 것은 허용한다. 내용이 길면 먼저 문장을 요약하고, 필요하면 동일하거나 다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
+        "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 제목/본문 위계를 유지하고 복제된 페이지의 기존 텍스트·표·이미지 내용을 해당 요소 안에서 교체한다. 모든 텍스트를 일괄 삭제한 뒤 add_textbox/add_shape로 다시 그리지 않는다. 내용에 맞춰 기존 텍스트 박스와 이미지 박스의 크기 및 위치를 키우거나 줄이는 것은 허용한다. 내용이 길면 먼저 문장을 요약하고, 필요하면 동일하거나 다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
         "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
+        "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
         "필요하면 생성 스크립트(.js/.mjs/.py)를 작성하고 실행하되 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
         "원문에 없는 사실을 채우지 말고, 완료 전 모든 결과 페이지가 원본 템플릿 페이지의 복제본인지, `제목을 작성해주세요` 같은 원본 안내 문구가 모두 교체됐는지 검사한다.");
     }
@@ -868,11 +902,14 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             const createdPath = created ?? "";
             const outputSlides = createdPath ? pptxSlideCount(createdPath) : 0;
             const packageIssues = createdPath ? pptxPackageIssues(createdPath) : [];
+            const fidelityIssues = createdPath && !packageIssues.length ? pptxTemplateFidelityIssues(PRESENTATION_TEMPLATE_PATH, createdPath) : [];
             const retainedGuideText = createdPath ? pptxRetainedGuideText(createdPath) : [];
             const invalidReason = !created
               ? "새 PPTX 파일이 생성되지 않았습니다."
               : packageIssues.length
                 ? packageIssues.join(" ")
+                : fidelityIssues.length
+                  ? fidelityIssues.join(" ")
                 : outputSlides < 1
                   ? "presentation.xml에 등록된 완성 슬라이드가 없습니다."
                 : retainedGuideText.length
@@ -1140,11 +1177,23 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
             this.permissions.approve(category);
           }
 
-          const presentationScriptAddsBlankSlides = presentationRequest && name === "write_file" && typeof args.content === "string" &&
-            /(?:slides\s*\.\s*add_slide|slides\s*\.\s*add\s*\()/i.test(args.content) &&
-            !/(?:deepcopy|copy\.deepcopy|duplicate[_A-Za-z]*slide|clone[_A-Za-z]*slide)/i.test(args.content);
+          const presentationCode = presentationRequest
+            ? String(name === "shell_exec" ? args.command ?? "" : name === "write_file" ? args.content ?? "" : "")
+            : "";
+          const presentationScriptAddsBlankSlides = presentationRequest &&
+            /(?:slides\s*\.\s*add_slide|slides\s*\.\s*add\s*\()/i.test(presentationCode) &&
+            !/(?:deepcopy|copy\.deepcopy|duplicate[_A-Za-z]*slide|clone[_A-Za-z]*slide)/i.test(presentationCode);
+          const presentationRebuildsTemplate = presentationRequest && /(?:add_textbox|add_shape|\.text\s*=\s*['"]{2}|text_frame\s*\.\s*clear\s*\()/i.test(presentationCode);
+          const presentationLeaksIntermediates = presentationRequest && (
+            (name === "shell_exec" && new RegExp(`${path.dirname(PRESENTATION_TEMPLATE_PATH).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/[^\\s'\"]+\\.(?:py|js|mjs|json|png|log)(?=\\s|['\"]|$)`, "im").test(presentationCode)) ||
+            (name === "write_file" && typeof args.path === "string" && /\.(?:py|js|mjs|json|png|log)$/i.test(args.path) && !path.resolve(this.cwd, args.path).startsWith("/tmp/"))
+          );
           const result = presentationRequest && name === "write_file" && typeof args.path === "string" && /\.html?$/i.test(args.path)
             ? "[차단됨] PowerPoint 요청에는 HTML/대시보드를 만들 수 없습니다. BCAVE PPT 원본 양식으로 .pptx를 생성하세요."
+            : presentationLeaksIntermediates
+              ? "[차단됨] 최종 PPTX 외 작업 스크립트·중간 파일을 Desktop에 만들 수 없습니다. 모든 중간 산출물은 /tmp 아래 작업 폴더에 만들고 최종 .pptx 하나만 지정 위치에 저장하세요."
+            : presentationRebuildsTemplate
+              ? "[차단됨] 복제한 템플릿의 기존 요소를 지우고 새 텍스트 박스/도형으로 다시 그릴 수 없습니다. 원본 1~3, 5~10페이지 중 하나를 복제하고 상속된 요소의 텍스트와 크기·위치만 수정하세요."
             : presentationScriptAddsBlankSlides
               ? "[차단됨] 빈 레이아웃으로 새 슬라이드를 만드는 코드는 사용할 수 없습니다. 새 페이지가 필요하면 BCAVE 원본 1~10장 중 적합한 페이지를 복제하고 복제본의 내용을 교체하세요."
             : await executeTool(name, args, this.cwd);
