@@ -24,7 +24,7 @@ function pptxSlideCount(filePath: string): number {
   return String(result.stdout).match(/<p:sldId\b/g)?.length ?? 0;
 }
 
-function pptxPackageIssues(filePath: string): string[] {
+export function pptxPackageIssues(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return ["PPTX 파일이 없습니다."];
   const listing = spawnSync("unzip", ["-Z1", filePath], { encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
   if (listing.status !== 0) return ["PPTX 압축 구조를 읽을 수 없습니다."];
@@ -37,6 +37,23 @@ function pptxPackageIssues(filePath: string): string[] {
   if (!names.includes("[Content_Types].xml") || !names.includes("ppt/presentation.xml") || !names.includes("ppt/_rels/presentation.xml.rels")) {
     issues.push("PowerPoint 필수 문서 구조가 누락됐습니다.");
   }
+  for (const slidePath of pptxRegisteredSlidePaths(filePath)) {
+    const slideXml = unzipText(filePath, slidePath);
+    const relPath = path.posix.join(path.posix.dirname(slidePath), "_rels", `${path.posix.basename(slidePath)}.rels`);
+    const relXml = names.includes(relPath) ? unzipText(filePath, relPath) : "";
+    const relationshipIds = new Set([...relXml.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"/g)].map((match) => match[1]));
+    const referencedIds = [...slideXml.matchAll(/\br:(?:embed|link|id)="([^"]+)"/g)].map((match) => match[1]);
+    const missingIds = [...new Set(referencedIds.filter((id) => !relationshipIds.has(id)))];
+    if (missingIds.length) issues.push(`${path.posix.basename(slidePath)}의 이미지·링크 관계가 누락됐습니다(${missingIds.join(", ")}).`);
+    for (const match of relXml.matchAll(/<Relationship\b([^>]*)>/g)) {
+      const attrs = match[1];
+      if (/\bTargetMode="External"/.test(attrs)) continue;
+      const target = attrs.match(/\bTarget="([^"]+)"/)?.[1];
+      if (!target) continue;
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(slidePath), target));
+      if (!names.includes(resolved)) issues.push(`${path.posix.basename(slidePath)}가 존재하지 않는 리소스를 참조합니다(${resolved}).`);
+    }
+  }
   return issues;
 }
 
@@ -44,7 +61,7 @@ function pptxRetainedGuideText(filePath: string): string[] {
   const result = spawnSync("unzip", ["-p", filePath, "ppt/slides/slide*.xml"], { encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
   if (result.status !== 0) return ["PPTX 내부 슬라이드를 읽을 수 없음"];
   const xml = String(result.stdout);
-  const guidePhrases = ["제목을 작성해주세요", "목차를 적어주세요", "간지로 활용하시면 됩니다", "PPT 작성가이드", "내용/아이콘 수정"];
+  const guidePhrases = ["제목을 작성해주세요", "목차를 적어주세요", "필요 시 하위 목차로 활용해주세요", "간지로 활용하시면 됩니다", "PPT 작성가이드", "내용/아이콘 수정", "표는 이렇게 작성 해보세요", "핵심 결과를 확인합니다", "주요 응답 결과입니다", "우선순위 과제를 정리했습니다"];
   return guidePhrases.filter((phrase) => xml.includes(phrase));
 }
 
@@ -68,16 +85,37 @@ function pptxSlideShapeSignature(filePath: string, slidePath: string): string {
   return [...xml.matchAll(/<(?:p|a):cNvPr\b[^>]*\bid="(\d+)"/g)].map((match) => match[1]).sort((a, b) => Number(a) - Number(b)).join(",");
 }
 
-function pptxTemplateFidelityIssues(templatePath: string, outputPath: string): string[] {
+function pptxSlideVisualSignature(filePath: string, slidePath: string): string {
+  const xml = unzipText(filePath, slidePath).replace(/<p:txBody>[\s\S]*?<\/p:txBody>/g, "<p:txBody/>");
+  const visualParts = [
+    ...xml.matchAll(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/g),
+    ...xml.matchAll(/<a:(?:solidFill|gradFill|pattFill|noFill|prstGeom|custGeom|ln)\b[^>]*>[\s\S]*?<\/a:(?:solidFill|gradFill|pattFill|noFill|prstGeom|custGeom|ln)>/g),
+  ];
+  return visualParts.map((match) => match[0].replace(/\s+/g, "")).join("|");
+}
+
+export function pptxTemplateFidelityIssues(templatePath: string, outputPath: string): string[] {
   const sourceSlides = pptxRegisteredSlidePaths(templatePath);
   const allowedSourceSlides = sourceSlides.filter((_, index) => index !== 3); // 원본 4페이지는 제작 사용법
-  const allowedSignatures = new Set(allowedSourceSlides.map((slide) => pptxSlideShapeSignature(templatePath, slide)).filter(Boolean));
+  const sourceByShapeSignature = new Map(allowedSourceSlides.map((slide) => [pptxSlideShapeSignature(templatePath, slide), slide]));
+  const allowedSignatures = new Set(sourceByShapeSignature.keys());
   const outputSlides = pptxRegisteredSlidePaths(outputPath);
+  const issues: string[] = [];
+  if (outputSlides.length < 2 || pptxSlideShapeSignature(outputPath, outputSlides[0] ?? "") !== pptxSlideShapeSignature(templatePath, sourceSlides[0] ?? "")) {
+    issues.push("완성본 1페이지는 원본 1페이지를 그대로 복제한 표지여야 합니다.");
+  }
+  if (outputSlides.length < 2 || pptxSlideShapeSignature(outputPath, outputSlides[1] ?? "") !== pptxSlideShapeSignature(templatePath, sourceSlides[1] ?? "")) {
+    issues.push("완성본 2페이지는 원본 2페이지를 그대로 복제한 목차여야 합니다.");
+  }
   const unmatched = outputSlides.map((slide, index) => ({ index: index + 1, signature: pptxSlideShapeSignature(outputPath, slide) }))
     .filter(({ signature }) => !signature || !allowedSignatures.has(signature)).map(({ index }) => index);
-  return unmatched.length
-    ? [`${unmatched.slice(0, 8).join(", ")}페이지가 원본 템플릿 슬라이드의 구성요소를 그대로 복제하지 않았습니다. 기존 요소를 전부 지우거나 새 텍스트 박스로 다시 그리면 안 됩니다.`]
-    : [];
+  if (unmatched.length) issues.push(`${unmatched.slice(0, 8).join(", ")}페이지가 원본 템플릿 슬라이드의 구성요소를 그대로 복제하지 않았습니다. 기존 요소를 전부 지우거나 새 텍스트 박스로 다시 그리면 안 됩니다.`);
+  const visuallyChanged = outputSlides.map((slide, index) => {
+    const sourceSlide = sourceByShapeSignature.get(pptxSlideShapeSignature(outputPath, slide));
+    return { index: index + 1, changed: !sourceSlide || pptxSlideVisualSignature(outputPath, slide) !== pptxSlideVisualSignature(templatePath, sourceSlide) };
+  }).filter(({ changed }) => changed).map(({ index }) => index);
+  if (visuallyChanged.length) issues.push(`${visuallyChanged.slice(0, 8).join(", ")}페이지의 도형 크기·위치·색상 구조가 원본과 달라졌습니다. 원본 페이지를 그대로 복제하고 텍스트 내용만 바꾸세요.`);
+  return issues;
 }
 
 function presentationFilesIn(directories: string[]): string[] {
@@ -783,13 +821,14 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         "[PRESENTATION_CONTEXT]\n이 요청의 산출물은 PowerPoint 프레젠테이션(.pptx)이다. HTML, 대시보드, 웹페이지를 만들지 않는다. " +
         `첨부/지정 문서의 내용을 요약·구조화하고 \`${PRESENTATION_TEMPLATE_PATH}\`를 편집 원본으로 사용한다. ` +
         `원본의 ${pptxSlideCount(PRESENTATION_TEMPLATE_PATH)}장은 완성본에 그대로 남기는 페이지가 아니라 선택 가능한 레이아웃 템플릿 라이브러리다. 먼저 모든 원본 슬라이드를 살펴보고, 완성본의 각 페이지마다 가장 적합한 원본 슬라이드 번호를 정한 뒤 해당 슬라이드를 복제하여 사용한다. 같은 원본 슬라이드를 여러 번 복제해도 되고 완성본의 페이지 수는 내용에 맞게 정한다. ` +
+        "완성본의 1페이지와 2페이지에는 원본 1페이지 표지와 원본 2페이지 목차를 반드시 각각 복제해 넣고, 해당 요소 안의 텍스트를 실제 제목과 실제 목차로 모두 교체한다. 목차에 기재한 모든 항목은 뒤쪽 본문 슬라이드에서 빠짐없이 다룬다. " +
         "원본 4페이지는 템플릿 사용법과 색상·폰트 지침을 설명하는 가이드 페이지다. 지침은 반드시 따르되 완성본 페이지의 레이아웃 후보로 복제하지 않는다. 사용할 수 있는 원본 페이지는 1~3, 5~10페이지다. " +
         "원본 1~10장을 앞에 그대로 둔 채 결과 페이지를 뒤에 붙이지 않는다. 빈 레이아웃에서 슬라이드를 만들거나 독자적인 디자인을 새로 그리지 않으며, 완성본의 모든 페이지는 반드시 원본 1~10장 중 하나를 복제한 페이지여야 한다. " +
-        "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 제목/본문 위계를 유지하고 복제된 페이지의 기존 텍스트·표·이미지 내용을 해당 요소 안에서 교체한다. 모든 텍스트를 일괄 삭제한 뒤 add_textbox/add_shape로 다시 그리지 않는다. 내용에 맞춰 기존 텍스트 박스와 이미지 박스의 크기 및 위치를 키우거나 줄이는 것은 허용한다. 내용이 길면 먼저 문장을 요약하고, 필요하면 동일하거나 다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
+        "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 도형, 박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지하고 복제된 페이지의 기존 텍스트 내용만 해당 요소 안에서 교체한다. 모든 텍스트를 일괄 삭제하거나 add_textbox/add_shape로 다시 그리지 않는다. 내용이 길면 문장을 요약하거나 동일·다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
         "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
         "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
         "필요하면 생성 스크립트(.js/.mjs/.py)를 작성하고 실행하되 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
-        "원문에 없는 사실을 채우지 말고, 완료 전 모든 결과 페이지가 원본 템플릿 페이지의 복제본인지, `제목을 작성해주세요` 같은 원본 안내 문구가 모두 교체됐는지 검사한다.");
+        "원문에 없는 사실을 채우지 말고, 완료 전 모든 결과 페이지가 원본 템플릿 페이지의 복제본인지, 모든 이미지 관계가 유효한지, `제목을 작성해주세요`나 `핵심 결과를 확인합니다` 같은 안내·임시 문구가 모두 교체됐는지 검사한다.");
     }
     if (appBuild || this.applicationActive) {
       const deployTarget = this.selectedDeployTarget || "local";
