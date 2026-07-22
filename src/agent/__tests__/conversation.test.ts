@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { auditApiContracts, auditUiSource, ConversationManager, validateApiResponse } from "../conversation.js";
+import { auditApiContracts, auditUiSource, ConversationManager, pptxPackageIssues, validateApiResponse } from "../conversation.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { PermissionManager } from "../permissions.js";
 
 const config = {
@@ -42,6 +43,22 @@ async function reachAppModel(cm: ConversationManager, request: string, deploy = 
 }
 
 describe("ConversationManager", () => {
+  it("rejects a PPTX with orphan slide XML files and an empty slide registry", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-empty-slide-registry-"));
+    fs.mkdirSync(path.join(root, "src", "ppt", "slides"), { recursive: true });
+    fs.mkdirSync(path.join(root, "src", "ppt", "_rels"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "[Content_Types].xml"), "<Types/>");
+    fs.writeFileSync(path.join(root, "src", "ppt", "presentation.xml"), '<p:presentation xmlns:p="p"><p:sldIdLst/></p:presentation>');
+    fs.writeFileSync(path.join(root, "src", "ppt", "_rels", "presentation.xml.rels"), "<Relationships/>");
+    fs.writeFileSync(path.join(root, "src", "ppt", "slides", "slide1.xml"), '<p:sld xmlns:p="p"/>');
+    const out = path.join(root, "empty.pptx");
+    expect(spawnSync("zip", ["-qr", out, "[Content_Types].xml", "ppt"], { cwd: path.join(root, "src") }).status).toBe(0);
+    const issues = pptxPackageIssues(out);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("등록된 슬라이드가 0장");
+    expect(issues[0]).toContain("미등록 slide XML 1개");
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   it("can be instantiated", () => {
     const pm = new PermissionManager("yolo");
     const cm = new ConversationManager(

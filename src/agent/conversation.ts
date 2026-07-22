@@ -37,7 +37,12 @@ export function pptxPackageIssues(filePath: string): string[] {
   if (!names.includes("[Content_Types].xml") || !names.includes("ppt/presentation.xml") || !names.includes("ppt/_rels/presentation.xml.rels")) {
     issues.push("PowerPoint 필수 문서 구조가 누락됐습니다.");
   }
-  for (const slidePath of pptxRegisteredSlidePaths(filePath)) {
+  const registeredSlides = pptxRegisteredSlidePaths(filePath);
+  if (!registeredSlides.length) {
+    const orphanSlides = names.filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).length;
+    issues.push(`presentation.xml의 <p:sldIdLst>에 등록된 슬라이드가 0장입니다${orphanSlides ? ` (패키지에는 미등록 slide XML ${orphanSlides}개 존재)` : ""}. 슬라이드 관계와 <p:sldId>를 복구하세요.`);
+  }
+  for (const slidePath of registeredSlides) {
     const slideXml = unzipText(filePath, slidePath);
     const relPath = path.posix.join(path.posix.dirname(slidePath), "_rels", `${path.posix.basename(slidePath)}.rels`);
     const relXml = names.includes(relPath) ? unzipText(filePath, relPath) : "";
@@ -66,8 +71,12 @@ function pptxRegisteredSlidePaths(filePath: string): string[] {
   const presentation = unzipText(filePath, "ppt/presentation.xml");
   const relationships = unzipText(filePath, "ppt/_rels/presentation.xml.rels");
   const targets = new Map<string, string>();
-  for (const match of relationships.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bType="[^"]+\/slide"[^>]*\bTarget="([^"]+)"[^>]*\/?\s*>/g)) {
-    targets.set(match[1], path.posix.normalize(`ppt/${match[2]}`));
+  for (const match of relationships.matchAll(/<Relationship\b([^>]*)>/g)) {
+    const attrs = match[1];
+    if (!/\bType="[^"]+\/slide"/.test(attrs)) continue;
+    const id = attrs.match(/\bId="([^"]+)"/)?.[1];
+    const target = attrs.match(/\bTarget="([^"]+)"/)?.[1];
+    if (id && target) targets.set(id, path.posix.normalize(`ppt/${target}`));
   }
   return [...presentation.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"[^>]*>/g)].map((match) => targets.get(match[1]) ?? "").filter(Boolean);
 }
@@ -877,6 +886,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         "금지 조작: 새 <p:sp> 도형·텍스트박스 추가, add_textbox/add_shape, text_frame.clear, 기존 안내문구 위 덧대기, 원본 전체를 완성본 앞에 남긴 뒤 새 페이지 붙이기, 이전 산출물 재활용. 빈 레이아웃이나 독자적인 디자인을 새로 만들지 않으며 모든 완성 페이지는 현재 세션 템플릿의 실제 페이지 복제본이어야 한다. " +
         "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 도형, 박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지하고 복제된 페이지의 기존 텍스트 내용만 해당 요소 안에서 교체한다. 모든 텍스트를 일괄 삭제하거나 add_textbox/add_shape로 다시 그리지 않는다. 내용이 길면 문장을 요약하거나 동일·다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
         "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
+        "presentation.xml의 <p:sldIdLst> 자체를 비우거나 <p:sldIdLst/>로 저장하지 않는다. 최종 슬라이드마다 presentation.xml의 <p:sldId>와 presentation.xml.rels의 slide 관계가 함께 존재해야 하며, 패키징 후 등록 슬라이드 수를 직접 확인한다. " +
         "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
         "필요하면 생성 스크립트(.js/.mjs/.py)를 작성하고 실행하되 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
         "원문에 없는 사실을 채우지 않는다. 완료 전 모든 결과 페이지가 세션 템플릿의 복제본인지, 이미지 관계가 유효한지, 템플릿 원문이 편집되지 않은 채 남지 않았는지, 표가 채워졌는지, 목차와 본문이 일치하는지, 읽은 원본 자료의 수치가 반영됐는지 검사한다.");
@@ -998,12 +1008,12 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
               ? "새 PPTX 파일이 생성되지 않았습니다."
               : packageIssues.length
                 ? packageIssues.join(" ")
+                : outputSlides < 1
+                  ? "presentation.xml의 <p:sldIdLst>에 등록된 완성 슬라이드가 0장입니다. 슬라이드 XML만 남기지 말고 <p:sldId>와 presentation.xml.rels 관계를 복구하세요."
                 : fidelityIssues.length
                   ? fidelityIssues.join(" ")
                 : gateIssues.length
                   ? gateIssues.join(" ")
-                : outputSlides < 1
-                  ? "presentation.xml에 등록된 완성 슬라이드가 없습니다."
                   : "";
             if (invalidReason) {
               const maxPresentationRepairRounds = Math.max(4, this.config.maxVerifyRounds ?? 2);
