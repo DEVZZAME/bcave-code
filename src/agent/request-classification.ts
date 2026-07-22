@@ -28,7 +28,10 @@ export function classifyUiSurface(message?: string): UiSurface {
  */
 export function isDashboardArtifactRequest(message: string): boolean {
   if (isPresentationRequest(message)) return false;
-  return /(대시보드|dashboard|리포트|보고서|report|analytics\s*화면)/i.test(message);
+  if (/(?:대시보드|dashboard)\s*(?:말고|아닌|아니라|제외|없이)|(?:대시보드|dashboard)(?:라는)?\s*(?:문자열|단어|표현)|요청에\s*대해서만/i.test(message)) return false;
+  const dashboardNoun = /(?:대시보드|dashboard)/i.test(message);
+  const creationIntent = /(?:만들어|만들기|생성(?:해|하고|하여|하기|해줘|해주세요)?|제작(?:해|하고|하여|하기|해줘|해주세요)?|구현(?:해|하고|하여|하기|해줘|해주세요)?|구축(?:해|하고|하여|하기|해줘|해주세요)?|작성(?:해|하고|하여|하기|해줘|해주세요)?|그려(?:줘|주세요)?|구성(?:해|하고|하여|하기|해줘|해주세요)?|create|build|generate|implement)/i.test(message);
+  return dashboardNoun && creationIntent;
 }
 
 /** PowerPoint/발표자료 요청은 보고서라는 단어가 있어도 HTML 대시보드가 아니다. */

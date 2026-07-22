@@ -112,6 +112,16 @@ describe("ConversationManager", () => {
     await run.return(undefined);
   });
 
+  it("does not show the design-system chooser for a dashboard mention", async () => {
+    const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd());
+    const run = cm.run("대시보드가 왜 안 열리는지 확인해줘");
+    expect((await run.next()).value).toMatchObject({ type: "model" });
+    expect(cm.getHistory().some((message) =>
+      message.role === "assistant" && String(message.content).includes("디자인 시스템을 선택"),
+    )).toBe(false);
+    await run.return(undefined);
+  });
+
   it("routes a report PowerPoint request to PPTX instead of the dashboard HTML flow", async () => {
     const template = path.join(os.tmpdir(), `team-template-${Date.now()}.pptx`);
     fs.writeFileSync(template, "PK");
