@@ -973,7 +973,7 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
     // autoReply 가 설정되면 현재 루프를 break 하고 새 gen 으로 재시작한다.
     // (for-await 안에서 gen 을 재할당해도 이터레이터는 바뀌지 않으므로 while 로 감쌈)
     outer: while (true) {
-    for await (const event of gen) {
+    inner: for await (const event of gen) {
       if (aborted) break outer;
       stopSpinner();
 
@@ -1091,8 +1091,8 @@ async function processAgentEvents(initialGen: AsyncGenerator<AgentEvent>): Promi
 
         case "done":
           if (autoReply) {
-            // 셀렉터 선택 답변 → for-await 를 break 하고 while 에서 새 gen 으로 재시작
-            break outer;
+            // for-await(inner) 만 탈출 → while(outer) 의 autoReply 처리 블록으로 이동
+            break inner;
           }
           break;
       }
