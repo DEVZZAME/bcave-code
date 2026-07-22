@@ -125,6 +125,9 @@ describe("ConversationManager", () => {
       message.role === "system" && String(message.content).startsWith("[PRESENTATION_CONTEXT]"),
     );
     expect(String(presentationContext?.content)).toContain(template);
+    expect(String(presentationContext?.content)).toContain(path.join(process.cwd(), "보고서.pptx"));
+    expect(String(presentationContext?.content)).toContain("_v2, _final, _verified 같은 별도 PPTX를 만들지 말고");
+    expect(String(presentationContext?.content)).toContain("python-pptx와 Python 생성 스크립트는 사용하지 않는다");
     expect(String(presentationContext?.content)).toContain("선택 가능한 레이아웃 라이브러리");
     expect(String(presentationContext?.content)).toContain("같은 페이지를 여러 번 복제");
     expect(String(presentationContext?.content)).toContain("박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지");

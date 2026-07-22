@@ -149,6 +149,19 @@ function pptxPathsFromText(value: string, cwd: string): string[] {
   return [...new Set(matches)];
 }
 
+function presentationSourcePathsFromText(value: string, cwd: string): string[] {
+  return [...new Set([...value.matchAll(/((?:(?:\.{1,2}\/|\/)?)[^\s\n"'`]+?\.(?:md|txt|csv|tsv|xlsx|xls|json|pdf))\b/gi)]
+    .map((match) => path.resolve(cwd, match[1].trim())))];
+}
+
+function resolvePresentationOutputPath(value: string, cwd: string, templatePath: string): string {
+  const explicitOutputs = pptxPathsFromText(value, cwd).filter((file) => path.resolve(file) !== path.resolve(templatePath));
+  if (explicitOutputs.length) return explicitOutputs[explicitOutputs.length - 1];
+  const source = presentationSourcePathsFromText(value, cwd)[0];
+  if (source) return path.join(path.dirname(source), `${path.basename(source, path.extname(source))}.pptx`);
+  return path.join(cwd, "결과.pptx");
+}
+
 function autoDetectPresentationTemplate(cwd: string): string {
   try {
     const candidates = fs.readdirSync(cwd).filter((name) => /\.pptx$/i.test(name)).map((name) => path.join(cwd, name));
@@ -479,6 +492,7 @@ export class ConversationManager {
   private selectedDeployTarget = ""; // 선택된 배포 플랫폼
   private pendingPresentationTemplate = false;
   private presentationTemplatePath = "";
+  private presentationOutputPath = "";
   private presentationSourceTexts: string[] = [];
 
   constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string, pptTemplateOverride = "") {
@@ -714,6 +728,10 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     const appBuild = isAppBuild(userMessage);
     const presentationRequest = isPresentationRequest(userMessage) || this.pendingPresentationTemplate;
     if (presentationRequest) {
+      const wasPendingPresentationTemplate = this.pendingPresentationTemplate;
+      if (!wasPendingPresentationTemplate) {
+        this.presentationOutputPath = resolvePresentationOutputPath(userMessage, this.cwd, this.presentationTemplatePath);
+      }
       const explicitPaths = pptxPathsFromText(userMessage, this.cwd).filter((file) => fs.existsSync(file));
       if (this.pendingPresentationTemplate && explicitPaths.length) {
         this.presentationTemplatePath = explicitPaths[0];
@@ -728,9 +746,13 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         yield { type: "text", content: "사용할 PowerPoint 템플릿(.pptx) 파일 경로를 입력해 주세요." };
         return;
       }
+      if (!wasPendingPresentationTemplate) {
+        this.presentationOutputPath = resolvePresentationOutputPath(userMessage, this.cwd, this.presentationTemplatePath);
+      }
     }
     const presentationTemplatePath = this.presentationTemplatePath;
-    const presentationDirectories = [this.cwd, ...(presentationTemplatePath ? [path.dirname(presentationTemplatePath)] : [])];
+    const presentationOutputPath = this.presentationOutputPath;
+    const presentationDirectories = [this.cwd, ...(presentationTemplatePath ? [path.dirname(presentationTemplatePath)] : []), ...(presentationOutputPath ? [path.dirname(presentationOutputPath)] : [])];
     const initialPresentations = new Map<string, number>(presentationFilesIn(presentationDirectories).map((file): [string, number] => [file, fs.statSync(file).mtimeMs]));
     if (appBuild) this.applicationActive = true;
     // 최초 요청에 배포 환경 또는 SQLite가 명시되면 스택 선택 뒤 같은 질문을 반복하지 않는다.
@@ -881,6 +903,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
       this.replaceSystemContext("[PRESENTATION_CONTEXT]",
         "[PRESENTATION_CONTEXT]\n이 요청의 산출물은 PowerPoint 프레젠테이션(.pptx)이다. HTML, 대시보드, 웹페이지를 만들지 않는다. " +
         `첨부/지정 문서의 내용을 요약·구조화하고 세션 템플릿 \`${presentationTemplatePath}\`를 편집 원본으로 사용한다. ` +
+        `최종 출력 경로는 반드시 \`${presentationOutputPath}\` 하나다. _v2, _final, _verified 같은 별도 PPTX를 만들지 말고 수정할 때도 이 파일 하나만 원본 템플릿에서 다시 생성해 교체한다. 다른 .pptx 중간 산출물은 만들지 않는다. ` +
         `원본의 ${pptxSlideCount(presentationTemplatePath)}장은 선택 가능한 레이아웃 라이브러리다. 모든 원본 슬라이드를 먼저 살펴보고 완성본의 각 페이지에 가장 적합한 원본 페이지를 복제한다. 같은 페이지를 여러 번 복제할 수 있고 페이지 수는 내용에 맞게 정한다. ` +
         "허용 조작은 다음뿐이다: 템플릿 복사본에서 시작하고, 미사용 슬라이드는 ppt/presentation.xml의 <p:sldIdLst>에서 제거하며, 필요한 슬라이드는 기존 슬라이드 XML과 관계 파일을 복제하고 관계를 등록한다. 텍스트는 기존 <a:t> 런의 내용만 교체한다. 표는 기존 <a:tbl> 셀의 <a:t>만 교체하고 행이 부족할 때만 기존 <a:tr>을 복제한다. 마지막에는 새 ZIP 패키지로 재저장한다. " +
         "금지 조작: 새 <p:sp> 도형·텍스트박스 추가, add_textbox/add_shape, text_frame.clear, 기존 안내문구 위 덧대기, 원본 전체를 완성본 앞에 남긴 뒤 새 페이지 붙이기, 이전 산출물 재활용. 빈 레이아웃이나 독자적인 디자인을 새로 만들지 않으며 모든 완성 페이지는 현재 세션 템플릿의 실제 페이지 복제본이어야 한다. " +
@@ -888,7 +911,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
         "presentation.xml의 <p:sldIdLst> 자체를 비우거나 <p:sldIdLst/>로 저장하지 않는다. 최종 슬라이드마다 presentation.xml의 <p:sldId>와 presentation.xml.rels의 slide 관계가 함께 존재해야 하며, 패키징 후 등록 슬라이드 수를 직접 확인한다. " +
         "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
-        "필요하면 생성 스크립트(.js/.mjs/.py)를 작성하고 실행하되 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
+        "필요하면 생성 스크립트(.js/.mjs)를 운영체제 임시 폴더에 작성한다. python-pptx와 Python 생성 스크립트는 사용하지 않는다. 한글을 포함한 임시 스크립트는 UTF-8로 저장한다. 최종 산출물은 반드시 실제로 열리는 .pptx여야 한다. " +
         "원문에 없는 사실을 채우지 않는다. 완료 전 모든 결과 페이지가 세션 템플릿의 복제본인지, 이미지 관계가 유효한지, 템플릿 원문이 편집되지 않은 채 남지 않았는지, 표가 채워졌는지, 목차와 본문이 일치하는지, 읽은 원본 자료의 수치가 반영됐는지 검사한다.");
     }
     if (appBuild || this.applicationActive) {
@@ -991,21 +1014,24 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
 
         if (!message.tool_calls || message.tool_calls.length === 0) {
           if (presentationRequest && !signal?.aborted) {
-            const created = (() => {
+            const changedPresentations = (() => {
               try {
-                return presentationFilesIn(presentationDirectories).filter((file) => file !== presentationTemplatePath && (!initialPresentations.has(file) || fs.statSync(file).mtimeMs > (initialPresentations.get(file) ?? 0))).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).find((file) => {
+                return presentationFilesIn(presentationDirectories).filter((file) => file !== presentationTemplatePath && (!initialPresentations.has(file) || fs.statSync(file).mtimeMs > (initialPresentations.get(file) ?? 0))).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).filter((file) => {
                   const bytes = fs.readFileSync(file);
                   return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
                 });
-              } catch { return undefined; }
+              } catch { return []; }
             })();
-            const createdPath = created ?? "";
+            const createdPath = changedPresentations.find((file) => path.resolve(file) === path.resolve(presentationOutputPath)) ?? "";
+            const extraPresentations = changedPresentations.filter((file) => path.resolve(file) !== path.resolve(presentationOutputPath));
             const outputSlides = createdPath ? pptxSlideCount(createdPath) : 0;
             const packageIssues = createdPath ? pptxPackageIssues(createdPath) : [];
             const fidelityIssues = createdPath && !packageIssues.length ? pptxTemplateFidelityIssues(presentationTemplatePath, createdPath) : [];
             const gateIssues = createdPath && !packageIssues.length ? validatePresentationGate(presentationTemplatePath, createdPath, this.presentationSourceTexts) : [];
-            const invalidReason = !created
-              ? "새 PPTX 파일이 생성되지 않았습니다."
+            const invalidReason = extraPresentations.length
+              ? `최종 PPTX는 '${presentationOutputPath}' 하나만 허용됩니다. 세션 중 별도로 생성된 파일을 제거하고 지정 파일 하나만 다시 저장하세요: ${extraPresentations.map((file) => path.basename(file)).join(", ")}`
+              : !createdPath
+              ? `지정된 최종 PPTX가 생성되지 않았습니다: ${presentationOutputPath}`
               : packageIssues.length
                 ? packageIssues.join(" ")
                 : outputSlides < 1
@@ -1281,6 +1307,10 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           const presentationCode = presentationRequest
             ? String(name === "shell_exec" ? args.command ?? "" : name === "write_file" ? args.content ?? "" : "")
             : "";
+          const presentationUsesPythonPptx = presentationRequest && /(?:from\s+pptx\s+import|import\s+pptx\b)/i.test(presentationCode);
+          const presentationUsesMissingPython = presentationRequest && name === "shell_exec" && /(?:^|[;&|()]\s*)python\s+(?:-|[^3])/i.test(presentationCode);
+          const mentionedPptxPaths = presentationRequest ? pptxPathsFromText(presentationCode, this.cwd) : [];
+          const unexpectedPptxPaths = mentionedPptxPaths.filter((file) => path.resolve(file) !== path.resolve(presentationTemplatePath) && path.resolve(file) !== path.resolve(presentationOutputPath));
           const presentationScriptAddsBlankSlides = presentationRequest &&
             /(?:slides\s*\.\s*add_slide|slides\s*\.\s*add\s*\()/i.test(presentationCode) &&
             !/(?:deepcopy|copy\.deepcopy|duplicate[_A-Za-z]*slide|clone[_A-Za-z]*slide)/i.test(presentationCode);
@@ -1292,6 +1322,12 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           );
           const result = presentationRequest && name === "write_file" && typeof args.path === "string" && /\.html?$/i.test(args.path)
             ? "[차단됨] PowerPoint 요청에는 HTML/대시보드를 만들 수 없습니다. 현재 세션의 PPTX 템플릿으로 실제 .pptx를 생성하세요."
+            : presentationUsesPythonPptx
+              ? "[차단됨] python-pptx로 PPT를 생성·수정할 수 없습니다. 템플릿 PPTX 복사본을 unzip한 뒤 기존 슬라이드 XML/관계를 복제하고 <a:t>만 교체하세요."
+            : presentationUsesMissingPython
+              ? "[차단됨] 이 환경에는 python 명령이 없습니다. PPT 작업은 Python 대신 Node.js와 zip/unzip을 사용하세요."
+            : unexpectedPptxPaths.length
+              ? `[차단됨] PPTX는 지정된 최종 파일 '${presentationOutputPath}' 하나만 만들 수 있습니다. 다른 출력명은 사용할 수 없습니다: ${unexpectedPptxPaths.map((file) => path.basename(file)).join(", ")}`
             : presentationLeaksIntermediates
               ? "[차단됨] 최종 PPTX 외 작업 스크립트·중간 파일을 Desktop에 만들 수 없습니다. 모든 중간 산출물은 /tmp 아래 작업 폴더에 만들고 최종 .pptx 하나만 지정 위치에 저장하세요."
             : presentationRebuildsTemplate
