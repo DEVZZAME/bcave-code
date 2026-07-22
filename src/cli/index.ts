@@ -18,6 +18,7 @@ import { detectDesignSystemFromArtifact, designSystemNames, hasDesignSystem, lin
 const args = process.argv.slice(2);
 let mode: PermissionMode = "auto-approve"; // 기본: Auto mode (카테고리별 자동 승인)
 let initialPrompt: string | undefined;
+let pptTemplateOverride: string | undefined;
 
 const modelIdx = args.indexOf("--model");
 let modelOverride: string | undefined;
@@ -28,6 +29,11 @@ if (modelIdx !== -1 && args[modelIdx + 1]) {
 const hubIdx = args.indexOf("--hub-url");
 if (hubIdx !== -1 && args[hubIdx + 1]) {
   saveConfig({ hubUrl: args[hubIdx + 1] });
+}
+
+const pptTemplateIdx = args.indexOf("--ppt-template");
+if (pptTemplateIdx !== -1 && args[pptTemplateIdx + 1]) {
+  pptTemplateOverride = nodePath.resolve(args[pptTemplateIdx + 1]);
 }
 
 if (args.includes("--dangerously-skip-permissions")) {
@@ -55,6 +61,7 @@ if (args.includes("--help") || args.includes("-h")) {
   ${chalk.bold("Options")}
     --hub-url <url>                    HUB 주소 지정 (예: http://hub.bcave.internal)
     --model <model>                    모델 변경 (기본: gpt-5.5)
+    --ppt-template <path>              이번 세션에서 사용할 PowerPoint 템플릿
     --safe                             Safe mode (모든 작업 전 확인)
     --auto-approve                     Auto mode: 카테고리별 자동 승인 (기본값)
     --dangerously-skip-permissions     모든 권한 확인 건너뛰기
@@ -65,7 +72,7 @@ if (args.includes("--help") || args.includes("-h")) {
 const nonFlagArgs = args.filter((a, i) => {
   if (a.startsWith("--")) return false;
   const prev = args[i - 1];
-  if (prev === "--model" || prev === "--hub-url") return false;
+  if (prev === "--model" || prev === "--hub-url" || prev === "--ppt-template") return false;
   return true;
 });
 
@@ -564,7 +571,7 @@ let cm: ConversationManager | null = null;
 
 function rebuildCM(): void {
   const pm = new PermissionManager(mode);
-  cm = new ConversationManager(config, pm, safeCwd());
+  cm = new ConversationManager(config, pm, safeCwd(), pptTemplateOverride);
 }
 
 // ─── 세션(대화) 저장/복원 ───────────────────────────────

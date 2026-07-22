@@ -27,6 +27,7 @@ export interface BcaveConfig {
   maxVerifyRounds: number; // 자동 검증-수정 반복 최대 횟수
   smokeTest: boolean; // 앱 생성 후 서버를 실제로 띄워 HTTP 응답(헬스체크)까지 확인
   designSystem: string; // 대시보드와 서비스의 모든 웹 UI에 적용할 디자인 시스템(빈 문자열이면 비활성)
+  pptTemplatePath: string; // 조직/팀별 PPT 템플릿 경로(빈 문자열이면 작업 폴더에서 자동 탐색)
 
   // ── 레거시/폴백: 직접 OpenAI 키 사용 ──
   apiKey: string;
@@ -56,6 +57,7 @@ const DEFAULT_CONFIG: BcaveConfig = {
   maxVerifyRounds: 2,
   smokeTest: true,
   designSystem: "bcave",
+  pptTemplatePath: "",
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
 };

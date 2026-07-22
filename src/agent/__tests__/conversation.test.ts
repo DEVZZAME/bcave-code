@@ -96,7 +96,9 @@ describe("ConversationManager", () => {
   });
 
   it("routes a report PowerPoint request to PPTX instead of the dashboard HTML flow", async () => {
-    const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd());
+    const template = path.join(os.tmpdir(), `team-template-${Date.now()}.pptx`);
+    fs.writeFileSync(template, "PK");
+    const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd(), template);
     const run = cm.run("보고서.md 내용으로 피피티 만들어줘");
     expect((await run.next()).value).toMatchObject({ type: "model" });
     expect(cm.getHistory().some((message) =>
@@ -105,18 +107,23 @@ describe("ConversationManager", () => {
     const presentationContext = cm.getHistory().find((message) =>
       message.role === "system" && String(message.content).startsWith("[PRESENTATION_CONTEXT]"),
     );
-    expect(String(presentationContext?.content)).toContain("선택 가능한 레이아웃 템플릿 라이브러리");
-    expect(String(presentationContext?.content)).toContain("같은 원본 슬라이드를 여러 번 복제");
-    expect(String(presentationContext?.content)).toContain("완성본의 페이지 수는 내용에 맞게 정한다");
+    expect(String(presentationContext?.content)).toContain(template);
+    expect(String(presentationContext?.content)).toContain("선택 가능한 레이아웃 라이브러리");
+    expect(String(presentationContext?.content)).toContain("같은 페이지를 여러 번 복제");
     expect(String(presentationContext?.content)).toContain("박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지");
-    expect(String(presentationContext?.content)).toContain("모든 결과 페이지가 원본 템플릿 페이지의 복제본인지");
-    expect(String(presentationContext?.content)).toContain("원본 4페이지는 템플릿 사용법");
-    expect(String(presentationContext?.content)).toContain("사용할 수 있는 원본 페이지는 1~3, 5~10페이지");
+    expect(String(presentationContext?.content)).toContain("현재 세션 템플릿의 실제 페이지 복제본");
     expect(String(presentationContext?.content)).toContain("최종 위치에는 완성된 .pptx 파일 하나만");
     expect(String(presentationContext?.content)).toContain("add_textbox/add_shape로 다시 그리지 않는다");
-    expect(String(presentationContext?.content)).toContain("1페이지와 2페이지에는 원본 1페이지 표지와 원본 2페이지 목차를 반드시");
-    expect(String(presentationContext?.content)).toContain("목차에 기재한 모든 항목은 뒤쪽 본문 슬라이드에서 빠짐없이");
     await run.return(undefined);
+    fs.rmSync(template, { force: true });
+  });
+
+  it("asks for a template when no CLI, config, or working-directory PPTX exists", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-no-ppt-template-"));
+    const cm = new ConversationManager({ ...config, pptTemplatePath: "" }, new PermissionManager("yolo"), dir);
+    const run = cm.run("보고서로 피피티 만들어줘");
+    expect((await run.next()).value).toMatchObject({ type: "text", content: expect.stringContaining("템플릿") });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("does not let a stale design choice intercept a port troubleshooting request", async () => {
