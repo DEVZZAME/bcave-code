@@ -150,6 +150,24 @@ export function getToolCategory(name: string): PermissionCategory {
   return cat;
 }
 
+/** PPT 템플릿 복제 작업에서 덧대기/전면 재생성을 유발하는 명령을 실행 전에 차단한다. */
+export function presentationMutationViolation(name: string, args: Record<string, unknown>): string | null {
+  if (name !== "write_file" && name !== "shell_exec") return null;
+  const value = name === "write_file" ? String(args.content ?? "") : String(args.command ?? "");
+  const target = name === "write_file" ? String(args.path ?? "") : value;
+  const presentationRelated = /pptx|powerpoint|presentation|slide\w*\.xml|python-pptx/i.test(`${target}\n${value}`);
+  if (!presentationRelated) return null;
+  const forbidden: Array<[RegExp, string]> = [
+    [/\badd_textbox\s*\(/i, "add_textbox"],
+    [/\badd_shape\s*\(/i, "add_shape"],
+    [/\btext_frame\.clear\s*\(/i, "text_frame.clear"],
+    [/\bslides\.add\s*\(/i, "slides.add"],
+    [/(?:createElement|create_node|SubElement)\s*\([^\n]{0,120}["']p:sp["']/i, "새 <p:sp> 작성"],
+  ];
+  const hit = forbidden.find(([pattern]) => pattern.test(value));
+  return hit ? `[차단됨] PPT 템플릿에 ${hit[1]} 방식으로 새 도형·텍스트박스를 추가할 수 없습니다. 템플릿 복사본의 기존 <a:t> 런을 교체하고, 부족한 슬라이드/표 행만 XML 복제하세요.` : null;
+}
+
 /** 장기 실행 개발/프리뷰 서버 명령인지 판별한다. */
 export function isDevServerCommand(command: string): boolean {
   // 실행 구간의 첫 명령만 인정한다. `lsof | rg 'vite|tsx'` 같은 조회 명령의
@@ -726,6 +744,8 @@ export async function executeTool(
   args: Record<string, unknown>,
   cwd: string
 ): Promise<string> {
+  const presentationBlock = presentationMutationViolation(name, args);
+  if (presentationBlock) return presentationBlock;
   try {
     switch (name) {
       case "read_file": {

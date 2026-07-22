@@ -41,6 +41,14 @@ function slideParagraphs(filePath: string, slidePath: string): string[] {
   ).filter(Boolean);
 }
 
+function slideContentRows(filePath: string, slidePath: string): string[] {
+  const xml = unzipText(filePath, slidePath);
+  const tableRows = [...xml.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)].map((row) =>
+    normalizeText([...row[1].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((match) => match[1]).join(" | ")),
+  ).filter(Boolean);
+  return [...slideParagraphs(filePath, slidePath), ...tableRows];
+}
+
 function templateEditableTextSet(templatePath: string): Set<string> {
   const slides = pptxRegisteredSlidePaths(templatePath);
   const bySlide = slides.map((slide) => new Set(pptxSlideTextRuns(templatePath, slide)));
@@ -58,6 +66,54 @@ export function retainedTemplateTextIssues(templatePath: string, outputPath: str
     for (const text of retained.slice(0, 8)) issues.push(`${path.posix.basename(slide)}: 템플릿 원문 '${text}' 잔존`);
   }
   return issues;
+}
+
+function slideStructureSignature(filePath: string, slidePath: string): string {
+  return [...unzipText(filePath, slidePath).matchAll(/<(?:p|a):cNvPr\b[^>]*\bid="(\d+)"/g)]
+    .map((match) => match[1]).sort((a, b) => Number(a) - Number(b)).join(",");
+}
+
+function slideShapeMap(filePath: string, slidePath: string): Map<string, string> {
+  const shapes = new Map<string, string>();
+  for (const match of unzipText(filePath, slidePath).matchAll(/<p:sp\b[\s\S]*?<p:cNvPr\b([^>]*)>[\s\S]*?<\/p:sp>/g)) {
+    const id = match[1].match(/\bid="([^"]+)"/)?.[1];
+    const name = match[1].match(/\bname="([^"]*)"/)?.[1] ?? "";
+    if (id) shapes.set(id, name);
+  }
+  return shapes;
+}
+
+/** 어떤 원본 슬라이드에도 없던 <p:sp> 덧대기를 슬라이드·도형 단위로 보고한다. */
+export function newShapeIssues(templatePath: string, outputPath: string): string[] {
+  const templateShapes = pptxRegisteredSlidePaths(templatePath).map((slide) => ({ slide, shapes: slideShapeMap(templatePath, slide) }));
+  const issues: string[] = [];
+  for (const outputSlide of pptxRegisteredSlidePaths(outputPath)) {
+    const outputShapes = slideShapeMap(outputPath, outputSlide);
+    if (!outputShapes.size || !templateShapes.length) continue;
+    const closest = templateShapes.map((candidate) => ({
+      ...candidate,
+      added: [...outputShapes.keys()].filter((id) => !candidate.shapes.has(id)),
+      removed: [...candidate.shapes.keys()].filter((id) => !outputShapes.has(id)),
+    })).sort((a, b) => (a.added.length + a.removed.length) - (b.added.length + b.removed.length))[0];
+    if (closest.added.length) {
+      const detail = closest.added.slice(0, 6).map((id) => `${id}${outputShapes.get(id) ? ` '${outputShapes.get(id)}'` : ""}`).join(", ");
+      issues.push(`${path.posix.basename(outputSlide)}: 원본 ${path.posix.basename(closest.slide)}에 없는 신규 <p:sp> 도형 ${closest.added.length}개 추가됨 (${detail})`);
+    }
+  }
+  return issues;
+}
+
+/** 템플릿 전체를 앞에 그대로 둔 채 결과 슬라이드를 이어붙인 흔적을 탐지한다. */
+export function appendedTemplateDeckIssues(templatePath: string, outputPath: string): string[] {
+  const templateSlides = pptxRegisteredSlidePaths(templatePath);
+  const outputSlides = pptxRegisteredSlidePaths(outputPath);
+  if (templateSlides.length < 2 || outputSlides.length <= templateSlides.length) return [];
+  const retainedPrefix = templateSlides.every((slide, index) =>
+    slideStructureSignature(templatePath, slide) === slideStructureSignature(outputPath, outputSlides[index]),
+  );
+  return retainedPrefix
+    ? [`slide1.xml~slide${templateSlides.length}.xml: 원본 템플릿 ${templateSlides.length}장이 앞부분에 그대로 잔존하고 뒤에 ${outputSlides.length - templateSlides.length}장이 이어붙었습니다.`]
+    : [];
 }
 
 export function emptyTableIssues(outputPath: string, threshold = 0.2): string[] {
@@ -99,14 +155,47 @@ export function tocBodyIssues(outputPath: string): string[] {
   const body = paragraphs.flatMap((items, index) => index === tocIndex ? [] : items.map(tocItem));
   const missing = numbered.filter((item) => !body.some((title) => title === item));
   const duplicate = numbered.filter((item, index) => numbered.indexOf(item) !== index);
+  const numberedBody = paragraphs.flatMap((items, index) => index === tocIndex ? [] : items)
+    .filter((text) => /^\d{1,2}\s*[.)-]?\s*\S+/.test(text)).map(tocItem).filter(Boolean);
+  const extra = numberedBody.filter((item) => !numbered.includes(item));
   const issues: string[] = [];
   if (missing.length) issues.push(`${path.posix.basename(slides[tocIndex])}: 목차 항목과 일치하는 본문 섹션 제목 없음 (${[...new Set(missing)].join(", ")})`);
   if (duplicate.length) issues.push(`${path.posix.basename(slides[tocIndex])}: 목차 항목 중복 (${[...new Set(duplicate)].join(", ")})`);
+  if (extra.length) issues.push(`${path.posix.basename(slides[tocIndex])}: 목차에 없는 본문 섹션 제목 존재 (${[...new Set(extra)].join(", ")})`);
   return issues;
 }
 
 export function extractNumericTokens(sourceText: string): string[] {
   return [...new Set([...sourceText.matchAll(/(?<![\d.])\d[\d,.]*\s*(?:%|건|명|원|회|개|일|분)(?![가-힣A-Za-z0-9])/g)].map((match) => normalizeText(match[0]).replace(/\s+/g, "")))];
+}
+
+export interface NumericLabelPair { label: string; value: string }
+
+function normalizeLabel(value: string): string {
+  return normalizeText(value).replace(/[*_`#>|:[\]()]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** 원본의 표 행/문장에서 숫자와 바로 인접한 의미 라벨을 함께 보존한다. */
+export function extractNumericLabelPairs(sourceText: string): NumericLabelPair[] {
+  const pairs: NumericLabelPair[] = [];
+  for (const rawLine of sourceText.split(/\r?\n/)) {
+    const line = normalizeText(rawLine);
+    if (!line || /^\|?\s*:?-{3,}/.test(line)) continue;
+    const cells = rawLine.includes("|") ? rawLine.split("|").map(normalizeLabel).filter(Boolean) : [];
+    if (cells.length >= 2) {
+      for (let index = 1; index < cells.length; index++) {
+        const value = cells[index].match(/^(\d[\d,.]*\s*(?:%|건|명|원|회|개|일|분)?)$/)?.[1];
+        const label = cells[index - 1];
+        if (value && label && !/^(수|응답|비율|언급)$/.test(label)) pairs.push({ label, value: value.replace(/\s+/g, "") });
+      }
+      continue;
+    }
+    for (const match of line.matchAll(/([^.!?→—–-]{2,40}?)\s+(\d[\d,.]*\s*(?:%|건|명|원|회|개|일|분))(?![가-힣A-Za-z0-9])/g)) {
+      const label = normalizeLabel(match[1]).split(/[,·]/).pop()?.trim() ?? "";
+      if (label) pairs.push({ label, value: match[2].replace(/\s+/g, "") });
+    }
+  }
+  return [...new Map(pairs.map((pair) => [`${pair.label}\u0000${pair.value}`, pair])).values()];
 }
 
 export function dataReflectionIssues(outputPath: string, sourceTexts: string[], minimum = 10, ratio = 0.35): string[] {
@@ -115,9 +204,24 @@ export function dataReflectionIssues(outputPath: string, sourceTexts: string[], 
   const output = pptxRegisteredSlidePaths(outputPath).flatMap((slide) => pptxSlideTextRuns(outputPath, slide)).join(" ").replace(/\s+/g, "");
   const present = tokens.filter((token) => output.includes(token));
   const required = Math.min(tokens.length, Math.max(Math.min(minimum, tokens.length), Math.ceil(tokens.length * ratio)));
-  if (present.length >= required) return [];
+  const issues: string[] = [];
   const missing = tokens.filter((token) => !output.includes(token));
-  return [`원본 수치 토큰 반영 부족: ${present.length}/${tokens.length}개 확인, 최소 ${required}개 필요 (누락 예: ${missing.slice(0, 8).join(", ")})`];
+  if (present.length < required) issues.push(`원본 수치 토큰 반영 부족: ${present.length}/${tokens.length}개 확인, 최소 ${required}개 필요 (누락 예: ${missing.slice(0, 8).join(", ")})`);
+
+  const pairs = [...new Map(sourceTexts.flatMap(extractNumericLabelPairs).map((pair) => [`${pair.label}\u0000${pair.value}`, pair])).values()].slice(0, 60);
+  if (pairs.length) {
+    const rows = pptxRegisteredSlidePaths(outputPath).flatMap((slide) => slideContentRows(outputPath, slide));
+    const matched = pairs.filter(({ label, value }) => rows.some((row) => {
+      const compact = row.replace(/\s+/g, "");
+      return compact.includes(label.replace(/\s+/g, "")) && compact.includes(value);
+    }));
+    const pairRequired = Math.min(pairs.length, Math.max(Math.min(minimum, pairs.length), Math.ceil(pairs.length * ratio)));
+    if (matched.length < pairRequired) {
+      const unmatched = pairs.filter((pair) => !matched.includes(pair));
+      issues.push(`원본 수치-라벨 짝 반영 부족: ${matched.length}/${pairs.length}개 확인, 최소 ${pairRequired}개 필요 (불일치 예: ${unmatched.slice(0, 6).map(({ label, value }) => `'${label}'=${value}`).join(", ")})`);
+    }
+  }
+  return issues;
 }
 
 export function duplicateLargeTitleIssues(outputPath: string): string[] {
@@ -138,6 +242,8 @@ export function duplicateLargeTitleIssues(outputPath: string): string[] {
 
 export function validatePresentationGate(templatePath: string, outputPath: string, sourceTexts: string[] = []): string[] {
   return [
+    ...appendedTemplateDeckIssues(templatePath, outputPath),
+    ...newShapeIssues(templatePath, outputPath),
     ...retainedTemplateTextIssues(templatePath, outputPath),
     ...emptyTableIssues(outputPath),
     ...tocBodyIssues(outputPath),

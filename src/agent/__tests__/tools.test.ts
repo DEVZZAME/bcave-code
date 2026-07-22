@@ -3,10 +3,18 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import XLSX from "xlsx";
-import { executeTool, extractServerPorts, getToolCategory, isDevServerCommand, TOOL_DEFINITIONS } from "../tools.js";
+import { executeTool, extractServerPorts, getToolCategory, isDevServerCommand, presentationMutationViolation, TOOL_DEFINITIONS } from "../tools.js";
 
 describe("Tools", () => {
   const testDir = path.join(os.tmpdir(), "bcave-tools-test-" + Date.now());
+
+  it("blocks PowerPoint scripts that add overlay text boxes", () => {
+    expect(presentationMutationViolation("write_file", {
+      path: "make_presentation.py",
+      content: "from pptx import Presentation\nslide.shapes.add_textbox(1,2,3,4)",
+    })).toContain("[차단됨]");
+    expect(presentationMutationViolation("write_file", { path: "normal.py", content: "print('ok')" })).toBeNull();
+  });
 
   beforeEach(() => {
     fs.mkdirSync(testDir, { recursive: true });

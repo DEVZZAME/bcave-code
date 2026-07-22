@@ -77,6 +77,17 @@ function pptxSlideShapeSignature(filePath: string, slidePath: string): string {
   return [...xml.matchAll(/<(?:p|a):cNvPr\b[^>]*\bid="(\d+)"/g)].map((match) => match[1]).sort((a, b) => Number(a) - Number(b)).join(",");
 }
 
+function pptxSlideShapeMap(filePath: string, slidePath: string): Map<string, string> {
+  const xml = unzipText(filePath, slidePath);
+  const shapes = new Map<string, string>();
+  for (const match of xml.matchAll(/<p:sp\b[\s\S]*?<p:cNvPr\b([^>]*)>[\s\S]*?<\/p:sp>/g)) {
+    const id = match[1].match(/\bid="([^"]+)"/)?.[1];
+    const name = match[1].match(/\bname="([^"]*)"/)?.[1] ?? "";
+    if (id) shapes.set(id, name);
+  }
+  return shapes;
+}
+
 function pptxSlideVisualSignature(filePath: string, slidePath: string): string {
   const xml = unzipText(filePath, slidePath).replace(/<p:txBody>[\s\S]*?<\/p:txBody>/g, "<p:txBody/>");
   const visualParts = [
@@ -92,6 +103,24 @@ export function pptxTemplateFidelityIssues(templatePath: string, outputPath: str
   const allowedSignatures = new Set(sourceByShapeSignature.keys());
   const outputSlides = pptxRegisteredSlidePaths(outputPath);
   const issues: string[] = [];
+  for (const [index, slide] of outputSlides.entries()) {
+    const outputShapes = pptxSlideShapeMap(outputPath, slide);
+    const candidates = sourceSlides.map((sourceSlide) => {
+      const sourceShapes = pptxSlideShapeMap(templatePath, sourceSlide);
+      const added = [...outputShapes.keys()].filter((id) => !sourceShapes.has(id));
+      const removed = [...sourceShapes.keys()].filter((id) => !outputShapes.has(id));
+      return { sourceSlide, sourceShapes, added, removed, distance: added.length + removed.length };
+    }).sort((a, b) => a.distance - b.distance);
+    const closest = candidates[0];
+    if (closest && closest.added.length) {
+      const detail = closest.added.slice(0, 6).map((id) => `${id}${outputShapes.get(id) ? ` '${outputShapes.get(id)}'` : ""}`).join(", ");
+      issues.push(`${path.posix.basename(slide)}: 원본 ${path.posix.basename(closest.sourceSlide)}에 없는 신규 <p:sp> 도형 ${closest.added.length}개 추가됨 (${detail})`);
+    }
+    if (closest && closest.removed.length) {
+      const detail = closest.removed.slice(0, 6).map((id) => `${id}${closest.sourceShapes.get(id) ? ` '${closest.sourceShapes.get(id)}'` : ""}`).join(", ");
+      issues.push(`${path.posix.basename(slide)}: 원본 ${path.posix.basename(closest.sourceSlide)}의 <p:sp> 도형 ${closest.removed.length}개 삭제됨 (${detail})`);
+    }
+  }
   const unmatched = outputSlides.map((slide, index) => ({ index: index + 1, signature: pptxSlideShapeSignature(outputPath, slide) }))
     .filter(({ signature }) => !signature || !allowedSignatures.has(signature)).map(({ index }) => index);
   if (unmatched.length) issues.push(`${unmatched.slice(0, 8).join(", ")}페이지가 원본 템플릿 슬라이드의 구성요소를 그대로 복제하지 않았습니다. 기존 요소를 전부 지우거나 새 텍스트 박스로 다시 그리면 안 됩니다.`);
@@ -844,7 +873,8 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         "[PRESENTATION_CONTEXT]\n이 요청의 산출물은 PowerPoint 프레젠테이션(.pptx)이다. HTML, 대시보드, 웹페이지를 만들지 않는다. " +
         `첨부/지정 문서의 내용을 요약·구조화하고 세션 템플릿 \`${presentationTemplatePath}\`를 편집 원본으로 사용한다. ` +
         `원본의 ${pptxSlideCount(presentationTemplatePath)}장은 선택 가능한 레이아웃 라이브러리다. 모든 원본 슬라이드를 먼저 살펴보고 완성본의 각 페이지에 가장 적합한 원본 페이지를 복제한다. 같은 페이지를 여러 번 복제할 수 있고 페이지 수는 내용에 맞게 정한다. ` +
-        "원본 전체를 완성본 앞에 남긴 뒤 새 페이지를 붙이지 않는다. 빈 레이아웃이나 독자적인 디자인을 새로 만들지 않으며 모든 완성 페이지는 현재 세션 템플릿의 실제 페이지 복제본이어야 한다. " +
+        "허용 조작은 다음뿐이다: 템플릿 복사본에서 시작하고, 미사용 슬라이드는 ppt/presentation.xml의 <p:sldIdLst>에서 제거하며, 필요한 슬라이드는 기존 슬라이드 XML과 관계 파일을 복제하고 관계를 등록한다. 텍스트는 기존 <a:t> 런의 내용만 교체한다. 표는 기존 <a:tbl> 셀의 <a:t>만 교체하고 행이 부족할 때만 기존 <a:tr>을 복제한다. 마지막에는 새 ZIP 패키지로 재저장한다. " +
+        "금지 조작: 새 <p:sp> 도형·텍스트박스 추가, add_textbox/add_shape, text_frame.clear, 기존 안내문구 위 덧대기, 원본 전체를 완성본 앞에 남긴 뒤 새 페이지 붙이기, 이전 산출물 재활용. 빈 레이아웃이나 독자적인 디자인을 새로 만들지 않으며 모든 완성 페이지는 현재 세션 템플릿의 실제 페이지 복제본이어야 한다. " +
         "원본의 배경, 마스터, 색상, 글꼴, 로고, 장식 요소, 도형, 박스 크기와 위치, 글꼴 크기와 서식을 그대로 유지하고 복제된 페이지의 기존 텍스트 내용만 해당 요소 안에서 교체한다. 모든 텍스트를 일괄 삭제하거나 add_textbox/add_shape로 다시 그리지 않는다. 내용이 길면 문장을 요약하거나 동일·다른 템플릿 페이지를 한 장 더 복제해 나눈다. " +
         "PPTX는 ZIP 패키지에 같은 경로를 append 방식으로 덧쓰지 않는다. 기존 항목을 교체할 때는 중복 엔트리가 생기지 않도록 새 패키지로 완전히 다시 저장하고, 원본 템플릿 페이지는 최종본에서 제거한다. " +
         "작업 스크립트, 이미지, JSON, 임시 PPTX는 Desktop이나 결과 폴더에 만들지 말고 운영체제 임시 폴더 안에서만 사용한다. 사용자에게 지정된 최종 위치에는 완성된 .pptx 파일 하나만 만든다. " +
