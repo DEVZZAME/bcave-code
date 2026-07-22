@@ -171,8 +171,8 @@ export function extractServerPorts(text: string): number[] {
 // ── 출력 폭증 방지: 툴 결과 크기·항목 수 상한 + 무거운 폴더 제외 ──
 // (제한이 없으면 list_files **/* 나 큰 파일이 대화 히스토리에 통째로 쌓여
 //  매 턴 재전송되며 토큰이 폭증한다.)
-const MAX_TOOL_CHARS = 12_000; // 대부분 툴 결과 상한
-const MAX_READ_CHARS = 40_000; // read_file 은 조금 더 여유
+const MAX_TOOL_CHARS = 8_000; // 반복 도구 결과의 모델 전송량과 TPM 사용 제한
+const MAX_READ_CHARS = 24_000; // 큰 파일도 수정에 필요한 앞부분은 충분히 유지
 const MAX_ITEMS = 400; // list/search 결과 항목 수
 const MAX_FILE_BYTES = 1_000_000; // search 시 이보다 큰 파일은 건너뜀
 const IGNORE: string[] = [

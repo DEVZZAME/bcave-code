@@ -266,6 +266,14 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
     });
   }
 
+  /** 반복 턴마다 쌓이는 작업 컨텍스트를 최신 한 벌로 교체해 요청 크기와 TPM 사용을 제한한다. */
+  private replaceSystemContext(marker: string, content: string): void {
+    this.messages = this.messages.filter((message, index) =>
+      index === 0 || message.role !== "system" || typeof message.content !== "string" || !message.content.startsWith(marker),
+    );
+    this.messages.push({ role: "system", content });
+  }
+
   /** 배포 환경을 외부에서 재설정 (CLI /deploy 명령용). */
   setDeployTarget(target: string): void {
     this.selectedDeployTarget = target;
@@ -311,26 +319,27 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
    * tool_call/tool_result 쌍이 깨지지 않도록 반드시 user 메시지 경계에서 자른다.
    */
   private trimHistory(): void {
-    const BUDGET = 250_000; // 문자 수 (~6만 토큰) — 모델 한도보다 훨씬 아래로 유지
+    const BUDGET = 140_000; // 문자 수 (~3.5만 토큰) — Tier 1 TPM과 응답 지연을 함께 낮춘다
     const msgs = this.messages;
     if (msgs.length <= 2) return;
     const size = (m: ChatCompletionMessageParam): number => JSON.stringify(m).length;
-    const total = msgs.reduce((s, m) => s + size(m), 0);
+    const sizes = msgs.map(size);
+    const total = sizes.reduce((sum, value) => sum + value, 0);
     if (total <= BUDGET) return;
 
     const system = msgs[0];
-    const sysSize = size(system);
+    const sysSize = sizes[0];
     const userIdxs: number[] = [];
     for (let i = 1; i < msgs.length; i++) {
       if ((msgs[i] as { role: string }).role === "user") userIdxs.push(i);
     }
     if (userIdxs.length === 0) return; // 안전하게 자를 경계가 없으면 그대로 둔다
 
+    const suffixSizes = new Array<number>(msgs.length + 1).fill(0);
+    for (let i = msgs.length - 1; i >= 1; i--) suffixSizes[i] = suffixSizes[i + 1] + sizes[i];
     let chosen = userIdxs[userIdxs.length - 1]; // 최소한 마지막 턴은 유지
     for (const idx of userIdxs) {
-      let s = sysSize;
-      for (let j = idx; j < msgs.length; j++) s += size(msgs[j]);
-      if (s <= BUDGET) { chosen = idx; break; }
+      if (sysSize + suffixSizes[idx] <= BUDGET) { chosen = idx; break; }
     }
     // assistant 텍스트가 과도하게 길면 앞부분을 잘라 히스토리 토큰을 줄인다.
     // (계획·설명·재언급이 쌓여 다음 턴 입력 토큰을 낭비하는 주요 원인)
@@ -583,9 +592,7 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
         if (s === "react-vite-fastify") return "\n[선택된 스택: React + Vite + Fastify] — 프론트: React + Vite + React Router. 백엔드: Fastify + TypeScript.";
         return "\n[선택된 스택: React + Vite + Express] — 프론트: React + Vite + React Router + Tailwind CSS + shadcn/ui. 백엔드: Express + TypeScript.";
       })();
-      this.messages.push({
-        role: "system",
-        content:
+      this.replaceSystemContext("[APPLICATION_CONTEXT]",
           "[APPLICATION_CONTEXT]\n이 요청은 실제로 동작하는 서비스/애플리케이션이다. 정적 HTML 파일 몇 개로 끝내지 말 것.\n\n" +
           deployGuide + stackGuide + "\n\n" +
           "공통 규칙:\n" +
@@ -598,21 +605,17 @@ CHARTS: <script>{{BCAVE_CHARTJS}}</script>, canvas in position:relative;height:2
           "- README에 실행 방법, 환경변수 설정, 배포 방법 포함\n" +
           "- 완료 전 GET /api/health 가 2xx JSON을 반환해야 하며, 실제 dev/start 서버 기동과 API 호출 검증을 반드시 통과해야 함\n" +
           "- 기존 저장소에 스택이 있으면 그대로 따른다\n" +
-          "- 단일 인라인 HTML 규칙 적용 안 됨 (정상적인 다중 파일 프로젝트)",
-      });
+          "- 단일 인라인 HTML 규칙 적용 안 됨 (정상적인 다중 파일 프로젝트)");
     }
     // B) 계획 먼저 + 완료 기준 명시: 실질적 개발 작업은 작게 쪼개되, 반드시 실제로 연결까지 확인한다.
     if (appBuild || classifyTask(userMessage) === "heavy") {
-      this.messages.push({
-        role: "system",
-        content:
+      this.replaceSystemContext("[DEV]",
           "[DEV] 계획은 내부적으로 세우되 채팅에 출력하지 않는다.\n" +
           "작업: 한 번에 한 파일씩 구현 → build/typecheck 확인 → 연결 검증(route/import/fetch).\n" +
           "연결 검증: 새 파일은 반드시 router/nav/server에 등록됐는지 직접 확인 후 완료 처리.\n" +
           "UI: 44px 터치, 4.5:1 대비, 인라인 에러, 반응형.\n" +
           "완료 응답: 만든 파일 목록 + '실행할까요?' 한 줄. 설명·계획·재언급 금지.\n" +
-          "실행 요청 시: dev 서버 직접 기동 → URL 확인 → '배포할까요?' 한 줄.]",
-      });
+          "실행 요청 시: dev 서버 직접 기동 → URL 확인 → '배포할까요?' 한 줄.]");
     }
     this.messages.push({ role: "user", content: userMessage });
 

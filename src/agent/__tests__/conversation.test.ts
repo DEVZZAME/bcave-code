@@ -119,6 +119,14 @@ describe("ConversationManager", () => {
       m.role === "system" && String(m.content).includes("[ACTIVE_DESIGN_SYSTEM:"),
     );
     expect(dsContexts).toHaveLength(0);
+    const appContexts = cm.getHistory().filter((m) =>
+      m.role === "system" && String(m.content).startsWith("[APPLICATION_CONTEXT]"),
+    );
+    const devContexts = cm.getHistory().filter((m) =>
+      m.role === "system" && String(m.content).startsWith("[DEV]"),
+    );
+    expect(appContexts).toHaveLength(1);
+    expect(devContexts).toHaveLength(1);
     await r2.return(undefined);
   });
 
