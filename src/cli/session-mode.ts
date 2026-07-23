@@ -38,10 +38,17 @@ function isDashboardRequest(message: string): boolean {
 }
 
 function isFashionServiceRequest(message: string): boolean {
-  const service = /(?:서비스|앱|애플리케이션|플랫폼|service|app|platform)/i.test(message);
+  const service = /(?:서비스|앱|애플리케이션|플랫폼|웹사이트|사이트|site|service|app|platform|website)/i.test(message);
   const build = /(?:개발|만들|생성|제작|구현|구축|develop|create|build|implement)/i.test(message);
   const fashion = /(?:패션|의류|브랜드|쇼핑|커머스|fashion|apparel|brand|commerce)/i.test(message);
   return service && build && fashion;
+}
+
+/** roundfit_만들기_프롬프트.txt 를 붙여넣는 등, RoundFit(매장 라운딩 점검) 전용 요청을 식별한다. */
+function isRoundfitRequest(message: string): boolean {
+  if (/\broundfit\b|ro-?undfit|라운드\s*핏/i.test(message)) return true;
+  // 이름 없이 스펙만 붙여넣는 경우 대비: "라운딩" + 매장 점검 맥락
+  return /라운딩/.test(message) && /(?:점검표|점검\s*내용|매장[^]*점검|점검[^]*매장)/.test(message);
 }
 
 function referencedPath(message: string): string {
@@ -179,24 +186,59 @@ export class SessionModeRunner {
     yield { type: "done" };
   }
 
-  private projectDirectories(): string[] {
+  private preparedProjects(): { name: string; path: string }[] {
     if (!fs.existsSync(this.projectRoot)) return [];
     return fs.readdirSync(this.projectRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(this.projectRoot, entry.name))
-      .sort();
+      .map((entry) => ({ name: entry.name, path: path.join(this.projectRoot, entry.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private async *copyFashionProject(signal?: AbortSignal): AsyncGenerator<AgentEvent> {
-    const projects = this.projectDirectories();
+  /** 준비된 프로젝트가 이미 현재 폴더에 생성돼 있으면 true (중복 생성 방지 기준). */
+  private isAlreadyCreated(name: string): boolean {
+    return fs.existsSync(path.join(this.cwd, name, "package.json"));
+  }
+
+  /**
+   * preferred 가 지정되면 그 프로젝트를(예: roundfit), 아니면 roundfit 을 제외한 나머지 중
+   * 아직 만들어지지 않은 것을 무작위로 골라 개발하는 척 복사한다. 이미 만든 건 다시 만들지 않는다.
+   */
+  private async *createService(preferred: string | null, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
+    const projects = this.preparedProjects();
     if (!projects.length) {
       yield { type: "error", message: `Session mode 준비 프로젝트를 찾을 수 없습니다: ${this.projectRoot}` };
       yield { type: "done" };
       return;
     }
-    const index = Math.min(projects.length - 1, Math.floor(Math.max(0, this.random()) * projects.length));
-    const source = projects[index];
-    const output = path.join(this.cwd, path.basename(source));
+
+    let target: { name: string; path: string };
+    if (preferred) {
+      const found = projects.find((project) => project.name === preferred);
+      if (!found) {
+        yield { type: "error", message: `Session mode 준비 프로젝트를 찾을 수 없습니다: ${preferred}` };
+        yield { type: "done" };
+        return;
+      }
+      if (this.isAlreadyCreated(found.name)) {
+        this.lastProjectOutput = path.join(this.cwd, found.name);
+        yield { type: "text", content: `이미 생성된 서비스입니다: ${this.lastProjectOutput} (중복 생성하지 않습니다)` };
+        yield { type: "done" };
+        return;
+      }
+      target = found;
+    } else {
+      const pool = projects.filter((project) => project.name !== "roundfit" && !this.isAlreadyCreated(project.name));
+      if (!pool.length) {
+        yield { type: "text", content: "요청하신 유형의 준비된 서비스는 이미 모두 생성되어 있습니다. 중복 생성하지 않습니다." };
+        yield { type: "done" };
+        return;
+      }
+      const index = Math.min(pool.length - 1, Math.floor(Math.max(0, this.random()) * pool.length));
+      target = pool[index];
+    }
+
+    const source = target.path;
+    const output = path.join(this.cwd, target.name);
     const first = Math.round(this.delayMs * 0.25);
     const second = Math.round(this.delayMs * 0.25);
     const third = Math.max(0, this.delayMs - first - second);
@@ -309,8 +351,12 @@ export class SessionModeRunner {
       yield { type: "done" };
       return;
     }
+    if (isRoundfitRequest(normalized)) {
+      yield* this.createService("roundfit", signal);
+      return;
+    }
     if (isFashionServiceRequest(normalized)) {
-      yield* this.copyFashionProject(signal);
+      yield* this.createService(null, signal);
       return;
     }
     yield {

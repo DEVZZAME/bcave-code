@@ -98,6 +98,66 @@ describe("SessionModeRunner", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  function seedProjects(prepared: string, names: string[]) {
+    for (const name of names) {
+      fs.mkdirSync(path.join(prepared, name), { recursive: true });
+      fs.writeFileSync(path.join(prepared, name, "package.json"), `{"name":"${name}"}`);
+    }
+  }
+
+  it("develops the roundfit service from the roundfit-style prompt", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-roundfit-"));
+    const prepared = path.join(root, "project");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(cwd);
+    seedProjects(prepared, ["roundfit", "stylemetrics", "threadly"]);
+    // random 0 이면 무작위 선택은 stylemetrics 를 고르지만, roundfit 프롬프트는 반드시 roundfit 이어야 한다.
+    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, random: () => 0 });
+    await collect(runner, "패션 회사 매장 라운딩 점검표를 기록하는 웹사이트, 이름은 Ro-undFit 으로 만들어줘");
+    expect(fs.existsSync(path.join(cwd, "roundfit", "package.json"))).toBe(true);
+    expect(fs.existsSync(path.join(cwd, "stylemetrics"))).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("never generates roundfit for a generic fashion request", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-generic-"));
+    const prepared = path.join(root, "project");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(cwd);
+    seedProjects(prepared, ["roundfit", "stylemetrics", "threadly"]);
+    // random 0 → 후보(roundfit 제외) 정렬 첫 항목 stylemetrics
+    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, random: () => 0 });
+    await collect(runner, "패션회사에서 사용할 서비스 아무거나 개발해줘");
+    expect(fs.existsSync(path.join(cwd, "roundfit"))).toBe(false);
+    expect(fs.existsSync(path.join(cwd, "stylemetrics", "package.json"))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("does not recreate an already generated project", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-dedup-"));
+    const prepared = path.join(root, "project");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(cwd);
+    seedProjects(prepared, ["roundfit", "stylemetrics", "threadly"]);
+    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, random: () => 0 });
+    // 1) generic → stylemetrics, 2) generic → threadly, 3) generic → 남은 것 없음
+    await collect(runner, "패션회사 서비스 아무거나 개발해줘");
+    await collect(runner, "패션회사 서비스 아무거나 개발해줘");
+    expect(fs.existsSync(path.join(cwd, "stylemetrics", "package.json"))).toBe(true);
+    expect(fs.existsSync(path.join(cwd, "threadly", "package.json"))).toBe(true);
+    const events = await collect(runner, "패션회사 서비스 아무거나 개발해줘");
+    expect(events.some((e) => e.type === "text" && e.content.includes("이미 모두 생성"))).toBe(true);
+
+    // roundfit 프롬프트를 두 번 보내도 한 번만 생성하고 두 번째는 중복 생성하지 않는다.
+    await collect(runner, "라운딩 점검표 웹사이트 Ro-undFit 만들어줘");
+    const dup = await collect(runner, "라운딩 점검표 웹사이트 Ro-undFit 만들어줘");
+    expect(dup.some((e) => e.type === "text" && e.content.includes("이미 생성"))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
   it("starts the generated service and reports its verified URL", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-server-"));
     const prepared = path.join(root, "project");
