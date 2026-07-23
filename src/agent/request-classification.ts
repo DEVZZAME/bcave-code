@@ -5,6 +5,10 @@ const APP_NOUN =
 export function isAppBuild(message?: string): boolean {
   if (!message) return false;
   if (/(목업|mockup|mock-up|시안|정적|static|한 ?페이지|단일 ?html|프로토타입 ?화면)/i.test(message)) return false;
+  if (isDashboardArtifactRequest(message) &&
+      !/(백엔드|backend|서버\b|\bserver\b|\bapi\b|데이터베이스|\bdb\b|로그인|회원가입|인증|\bauth\b|crud|결제|실시간\s*(?:저장|동기화|통신)|웹소켓|websocket)/i.test(message)) {
+    return false;
+  }
   return APP_NOUN.test(message);
 }
 

@@ -1,6 +1,6 @@
 # AXIS Design System — RULES v0.1 (기계용)
 
-너는 AXIS 디자인 시스템으로 화면을 조립한다. **너는 스타일을 만들지 않는다. 조립만 한다.**
+너는 AXIS 디자인 시스템으로 화면을 설계한다. 토큰과 컴포넌트 스타일은 만들지 않지만, 정보 구조와 레이아웃은 데이터의 목적에 맞게 선택한다.
 
 AXIS의 정체성: 쿨그레이 + 코발트 단일 액센트, "하나의 토큰, 두 가지 밀도"(플랫폼=comfortable,
 대시보드=compact), 차트는 8색 팔레트로 카테고리를 뚜렷이 구분한다 (BCAVE처럼 모노톤이 아님).
@@ -27,14 +27,27 @@ AXIS의 정체성: 쿨그레이 + 코발트 단일 액센트, "하나의 토큰,
 
 ## MUST
 
-- 페이지 구조: `.topbar`(+ 선택적 `.density-toggle`) → `.hero`(선택) → `.page` > (`.sec-head` + 콘텐츠 블록)*.
+- `.topbar`와 `.page`를 기본 셸로 사용한다. `.density-toggle`, `.hero`, `.sec-head`, KPI, 차트, 표의 존재와 순서는 목적에 따라 선택한다.
 - 모든 숫자 표기: 금액 `AXIS.fmt.krw(n)` · 건수 `AXIS.fmt.num(n)+'건'` · 비율 `AXIS.fmt.pct(x)` · 증감 `AXIS.fmt.delta(x)`.
 - 숫자를 담는 요소에 `class="num"`.
 - 차트 범례는 `AXIS.chart.legendHtml()` 로 생성 (Chart.js 기본 범례는 이미 꺼져 있음).
 - 테이블 증감 셀: `<td class="r num up">` / `down`.
 - 카테고리(브랜드·세그먼트 등) 비교는 막대·도넛에서 팔레트 자동 순환을 그대로 둔다 — 강제로 단색화하지 말 것 (BCAVE 규칙과 반대).
 
-## 표준 마크업 (그대로 조립)
+## 레이아웃 선택
+
+마크업 전에 내부적으로 `사용자 질문 → 핵심 결론 → 주 시각화 → 보조 근거 → 레이아웃`을 정한다. 아래 중 하나를 주 구조로 선택하며, 모든 대시보드를 KPI 4개 + 선형 차트 + 도넛 + 표 순서로 만들지 않는다.
+
+- 경영 요약: `.metric-strip` + 핵심 차트 하나 + `.insight-panel`
+- 실시간 모니터링: `.metric-strip` + `.layout-main-rail`(시계열/경고)
+- 비교 분석: `.split-feature` 또는 `.grid-2`
+- 원인 진단: `.layout-main-rail`(원인 분해/근거 목록)
+- 상세 운영: 필터 + `.table-wrap` 중심, 지표는 필요한 만큼만
+- 흐름·퍼널: `.section-flow` 안에 단계/진행률과 보조 추이
+
+hero와 도넛은 데이터와 목적이 정당화할 때만 사용한다. 최근 산출물이나 예제의 섹션 순서를 복제하지 않는다.
+
+## 마크업 레시피 (필요한 것만 선택)
 
 ### 페이지 골격
 ```html
@@ -55,7 +68,7 @@ AXIS의 정체성: 쿨그레이 + 코발트 단일 액센트, "하나의 토큰,
 </div>
 ```
 
-### KPI (4개)
+### KPI 예시 (개수 가변)
 ```html
 <div class="kpi-grid">
   <div class="kpi"><div class="lb">총매출</div><div class="val num" id="kpiSales"></div><span class="delta up" id="kpiSalesDelta"></span></div>

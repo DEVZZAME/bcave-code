@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { assembleDesignArtifact, assembleDesignArtifactParts, detectDesignSystemFromArtifact, designSystemNames, lintDesignArtifact } from "../runtime.js";
+import { assembleDesignArtifact, assembleDesignArtifactParts, detectDesignSystemFromArtifact, detectDesignSystemFromRequest, designSystemNames, lintDesignArtifact } from "../runtime.js";
 
 function writeArtifact(source: string): { dir: string; file: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-design-"));
@@ -16,6 +16,14 @@ describe("BCAVE design pipeline", () => {
     expect(designSystemNames()).toEqual(expect.arrayContaining(["axis", "bcave"]));
   });
 
+  it("detects the design system from an artifact path in an edit request", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-design-request-"));
+    const file = path.join(dir, "sales-dashboard.html");
+    fs.writeFileSync(file, "<style>/* BCAVE:ASSET tokens */</style>", "utf8");
+    expect(detectDesignSystemFromRequest(`sales-dashboard.html의 hero를 제거해줘`, dir)).toBe("bcave");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it("assembles structured body/app fields without code fences", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-design-parts-"));
     const file = path.join(dir, "dashboard.html");
@@ -27,6 +35,20 @@ describe("BCAVE design pipeline", () => {
     );
     expect(html).toContain("BCAVE:ASSET tokens");
     expect(html).not.toContain("```html:body");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("accepts a non-template diagnostic layout without hero or KPI cards", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-design-diagnostic-"));
+    const file = path.join(dir, "diagnostic.html");
+    const html = assembleDesignArtifactParts(
+      "bcave",
+      '<div class="topbar"><div class="topbar-inner"><div class="logo">B.CAVE</div></div></div><div class="page"><div class="layout-main-rail"><div class="card"><h3>원인 분해</h3></div><aside class="insight-panel"><h3>핵심 인사이트</h3><div class="sub">감소 원인을 확인했습니다.</div></aside></div></div>',
+      "void 0;",
+      file,
+    );
+    fs.writeFileSync(file, html, "utf8");
+    expect(lintDesignArtifact("bcave", file).pass).toBe(true);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

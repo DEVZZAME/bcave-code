@@ -87,10 +87,10 @@ for (const m of target.matchAll(/[\d,]{7,}\s*원/g))
 for (const m of target.matchAll(/toLocaleString\s*\(/g))
   W('R7-format-bypass', 'toLocaleString 직접 호출 — BCAVE.fmt.* 경유 권장', m.index);
 
-/* ---------- R8: .kpi.dark 정확히 1개 ---------- */
+/* ---------- R8: .kpi.dark 최대 1개 ---------- */
 const darkKpi = [...target.matchAll(/class\s*=\s*["'][^"']*\bkpi\b[^"']*\bdark\b[^"']*["']/gi)];
 if (darkKpi.length > 1)
-  V('R8-one-dark', `.kpi.dark ${darkKpi.length}개 — "하나만 어둡게" 위반, 정확히 1개만 허용`);
+  V('R8-one-dark', `.kpi.dark ${darkKpi.length}개 — 강조 KPI는 최대 1개만 허용`);
 
 /* ---------- R9: delta 오용 (숫자·%·▲▼ 없는 delta) ---------- */
 for (const m of target.matchAll(/class\s*=\s*["'][^"']*\bdelta\b[^"']*["'][^>]*>([^<]{1,40})</gi)) {

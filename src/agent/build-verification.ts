@@ -28,7 +28,7 @@ export function runVerify(commands: string[], cwd: string): VerificationFailure 
       cwd,
       shell: true,
       encoding: "utf8",
-      timeout: 180_000,
+      timeout: 90_000,
       maxBuffer: 8 * 1024 * 1024,
     });
     if (result.status !== 0) {

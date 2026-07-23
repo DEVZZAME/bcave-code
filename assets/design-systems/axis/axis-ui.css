@@ -25,6 +25,15 @@ h1,h2{letter-spacing:var(--letter-spacing-heading)}
 .grid-2 .full,.grid-3 .full,.grid-4 .full{grid-column:1/-1}
 .row-flex{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .stack{display:flex;flex-direction:column;gap:var(--space-4)}
+.section-flow{display:flex;flex-direction:column;gap:var(--space-6)}
+.layout-main-rail{display:grid;grid-template-columns:minmax(0,2fr) minmax(240px,1fr);gap:var(--card-gap);align-items:start}
+.layout-rail-main{display:grid;grid-template-columns:minmax(240px,1fr) minmax(0,2fr);gap:var(--card-gap);align-items:start}
+.split-feature{display:grid;grid-template-columns:minmax(0,3fr) minmax(280px,2fr);gap:var(--card-gap);align-items:stretch}
+.metric-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--card-gap)}
+.insight-panel{background:var(--color-primary);color:var(--color-text-inverse);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);padding:var(--card-padding)}
+.insight-panel h3{font-size:15px;font-weight:700;margin-bottom:var(--space-3)}
+.insight-panel .sub{color:var(--cobalt-100);font-size:13px}
+.table-wrap{overflow-x:auto;border-radius:var(--radius-lg)}
 .chart-box{position:relative;height:250px}
 .chart-box.tall{height:320px}
 .chart-box.donut{height:220px}
@@ -247,7 +256,7 @@ table.axis td.down{color:var(--color-decrease);font-weight:700}
 
 /* ---------- Responsive ---------- */
 @media (max-width:820px){
-  .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+  .grid-2,.grid-3,.grid-4,.layout-main-rail,.layout-rail-main,.split-feature{grid-template-columns:1fr}
   .kpi-grid{grid-template-columns:repeat(2,1fr)}
   .hero h1{font-size:30px;line-height:38px}
 }

@@ -30,7 +30,7 @@ function findFreePort(): Promise<number> {
   });
 }
 
-function httpPing(port: number, timeoutMs = 1500): Promise<boolean> {
+function httpPing(port: number, timeoutMs = 600): Promise<boolean> {
   const pingHost = (host: string) => new Promise<boolean>((resolve) => {
     const request = http.get({ host, port, path: "/", timeout: timeoutMs }, (response) => { response.destroy(); resolve(true); });
     request.on("error", () => resolve(false));
@@ -71,7 +71,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<Smok
     return [...ports].filter((candidate) => candidate > 0 && candidate < 65536);
   };
 
-  const deadline = Date.now() + 35_000;
+  const deadline = Date.now() + 18_000;
   let upPort = 0;
   let frontendPort = 0;
   while (Date.now() < deadline) {
@@ -81,7 +81,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<Smok
     const loggedFrontend = +(cleanTerminalOutput(logs.join("")).match(/Local:\s+https?:\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/i)?.[1] || 0);
     if (loggedFrontend && states.some((state) => state.port === loggedFrontend && state.live)) frontendPort = loggedFrontend;
     if (firstLive && (!expectsFrontend || frontendPort)) { upPort = firstLive.port; break; }
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, 350));
   }
 
   if (!upPort) {
@@ -94,7 +94,7 @@ export async function smokeTest(cwd: string, signal?: AbortSignal): Promise<Smok
 
   const apiIssues: string[] = [];
   try {
-    const response = await fetch(`http://127.0.0.1:${upPort}/api/health`, { headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(3000) });
+    const response = await fetch(`http://127.0.0.1:${upPort}/api/health`, { headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(2000) });
     const issue = validateApiResponse("/api/health", response.status, await response.text(), true);
     if (issue) apiIssues.push(issue);
   } catch (error) {

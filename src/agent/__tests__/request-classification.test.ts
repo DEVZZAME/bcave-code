@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDashboardArtifactRequest } from "../request-classification.js";
+import { isAppBuild, isDashboardArtifactRequest } from "../request-classification.js";
 
 describe("isDashboardArtifactRequest", () => {
   it.each([
@@ -21,5 +21,15 @@ describe("isDashboardArtifactRequest", () => {
     "리포트 화면을 검토해줘",
   ])("does not treat a mention as a creation request: %s", (message) => {
     expect(isDashboardArtifactRequest(message)).toBe(false);
+  });
+});
+
+describe("isAppBuild", () => {
+  it("keeps monitoring dashboards in the standalone artifact pipeline", () => {
+    expect(isAppBuild("실시간 운영 모니터링 대시보드를 만들어줘")).toBe(false);
+  });
+
+  it("treats a dashboard with explicit backend capabilities as an app", () => {
+    expect(isAppBuild("로그인과 API가 있는 실시간 운영 대시보드를 만들어줘")).toBe(true);
   });
 });

@@ -7,14 +7,16 @@ import { executeTool, getToolCategory, isDevServerCommand } from "./tools.js";
 import { PermissionManager, type PermissionCategory } from "./permissions.js";
 import { saveConfig, type BcaveConfig } from "../config/config.js";
 import { pickModel, classifyTask } from "./router.js";
-import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest, detectDeployTarget } from "./request-classification.js";
-import { designRules, designSystemDir, designSystemNames, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
+import { classifyUiSurface, isAppBuild, isDashboardArtifactRequest } from "./request-classification.js";
+import { designRules, designSystemDir, designSystemNames, detectDesignSystemFromRequest, hasDesignSystem, isUiArtifactRequest } from "../design-system/runtime.js";
 import { hubRefresh } from "../auth/hub.js";
 import { detectVerifyCommands, runVerify } from "./build-verification.js";
 import { auditAppCompleteness } from "./app-audit.js";
 export { auditApiContracts, auditUiSource, validateApiResponse } from "./app-audit.js";
 import { smokeTest } from "./smoke-test.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { inferAppStack, inferDeployTarget } from "./app-planning.js";
+import { dashboardLayoutBrief } from "./dashboard-layout.js";
 export { smokeTest } from "./smoke-test.js";
 
 const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|py|go|rs|java|rb|php|cs|kt|swift|scss|sass|less|css|json|astro)$/i;
@@ -44,11 +46,10 @@ export class ConversationManager {
   private messages: ChatCompletionMessageParam[] = [];
   private pendingApprovals: Map<string, { resolve: (approved: boolean) => void }> = new Map();
   private pendingDesignChoice = false;
+  private pendingDashboardRequest = "";
   private selectedDesignSystem = "";
   private applicationActive = false;
-  private pendingStackChoice = false; // 앱 빌드 시 스택 선택 대기
   private selectedStack = ""; // 선택된 기술 스택
-  private pendingDeployChoice = false; // 앱 빌드 시 배포 옵션 선택 대기
   private selectedDeployTarget = ""; // 선택된 배포 플랫폼
   constructor(config: BcaveConfig, permissions: PermissionManager, cwd: string) {
     this.config = config;
@@ -109,7 +110,6 @@ export class ConversationManager {
   /** 배포 환경을 외부에서 재설정 (CLI /deploy 명령용). */
   setDeployTarget(target: string): void {
     this.selectedDeployTarget = target;
-    this.pendingDeployChoice = false;
   }
 
   approveToolCall(id: string): void {
@@ -268,102 +268,20 @@ export class ConversationManager {
     // 실제 백엔드가 있는 애플리케이션/서비스 요청 → 단일 정적 HTML 플로우가 아니라 진짜 프로젝트로 만든다.
     const appBuild = isAppBuild(userMessage);
     if (appBuild) this.applicationActive = true;
-    // 최초 요청에 배포 환경 또는 SQLite가 명시되면 스택 선택 뒤 같은 질문을 반복하지 않는다.
-    if (appBuild && !this.selectedDeployTarget) {
-      const explicitTarget = detectDeployTarget(userMessage);
-      if (explicitTarget) this.selectedDeployTarget = explicitTarget;
-    }
-
-    // ─── 배포 옵션 선택 ───────────────────────────────────────────────────────
-    // 새 앱 빌드 요청이면 배포 대상을 먼저 물어본다 (프로덕션 스택을 결정하기 위해).
-    // 이미 선택됐거나, 메시지에 명시됐거나, 배포 선택 답변이면 건너뛴다.
-    // ─── 스택 선택: 앱 빌드 요청이면 항상 먼저 물어본다 ──────────────────────────
-    // (디렉토리에 package.json이 남아있어도 건너뛰지 않음 — 이전 시도 파일과 혼동 방지)
     const hasExistingStack = (() => {
       try { return fs.existsSync(path.join(this.cwd, "package.json")); } catch { return false; }
     })();
-    if (appBuild && !this.selectedStack && !this.pendingStackChoice) {
-      const existingNote = hasExistingStack ? "  0. **현재 방식 유지** — 이미 만들어진 서비스 구조를 그대로 사용\n" : "";
-      const q =
-        "어떤 종류의 서비스로 만들까요?\n\n" +
-        existingNote +
-        "  1. **일반적인 웹 서비스** ✦ 빠르고 유연하게 시작 (추천)\n" +
-        "  2. **검색에 잘 노출되는 서비스** — 검색 결과 노출이 중요할 때\n" +
-        "  3. **기존 Vue 방식 유지** — 기존 작업이 Vue일 때\n" +
-        "  4. **많은 요청을 처리하는 서비스** — 동시 사용자가 많을 때\n" +
-        "  5. **알아서 선택** — 요청에 가장 적합한 방식으로\n\n" +
-        "번호나 이름으로 답해 주세요.";
-      this.pendingStackChoice = true;
-      this.messages.push({ role: "user", content: userMessage });
-      this.messages.push({ role: "assistant", content: q });
-      yield { type: "text", content: q };
-      yield { type: "done" };
-      return;
-    }
-    if (this.pendingStackChoice) {
-      const answer = userMessage.trim().toLowerCase();
-      const stackMap: Record<string, string> = {
-        "0": "existing", 현재: "existing", 유지: "existing", 기존: "existing",
-        "1": "react-vite-express", react: "react-vite-express", vite: "react-vite-express", express: "react-vite-express",
-        "2": "nextjs", next: "nextjs", nextjs: "nextjs", "next.js": "nextjs",
-        "3": "vue-vite-express", vue: "vue-vite-express",
-        "4": "react-vite-fastify", fastify: "react-vite-fastify",
-        "5": "auto", 알아서: "auto",
-      };
-      const picked = Object.entries(stackMap).find(([k]) => answer.startsWith(k))?.[1];
-      this.selectedStack = picked ?? "auto";
-      this.pendingStackChoice = false;
-      if (appBuild) this.applicationActive = true;
-
-      // 스택 선택 직후 배포 환경도 바로 물어본다 — DB 종류가 달라지므로 먼저 알아야 한다.
-      // SQLite는 로컬 전용이며 대부분 배포 환경에서 사용 불가.
-      if (this.selectedStack !== "existing" && !this.selectedDeployTarget) {
-        const dq =
-          "서비스를 어디에서 사용할까요?\n\n" +
-          "  1. **내 컴퓨터에서 먼저 사용** ✦ 빠르게 확인하고 나중에 온라인 전환\n" +
-          "  2. **간편하게 인터넷에 공개** — 빠른 시작 추천\n" +
-          "  3. **검색 노출 중심으로 인터넷에 공개**\n" +
-          "  4. **여러 지역에서 안정적으로 운영**\n" +
-          "  5. **회사 서버에서 직접 운영**\n\n" +
-          "번호로 답해 주세요.";
-        this.pendingDeployChoice = true;
-        this.messages.push({ role: "user", content: userMessage });
-        this.messages.push({ role: "assistant", content: dq });
-        yield { type: "text", content: dq };
-        yield { type: "done" };
-        return;
-      }
-    }
-
-    if (appBuild && !this.selectedDeployTarget) {
-      const explicitTarget = detectDeployTarget(userMessage);
-      if (explicitTarget) {
-        this.selectedDeployTarget = explicitTarget;
-      } else {
-        // 배포 환경 미선택 — 기본값은 Railway(PostgreSQL). SQLite 금지.
-        this.selectedDeployTarget = "railway";
-      }
-    } else if (this.pendingDeployChoice && !appBuild) {
-      // 배포 선택 대기 중 답변 처리
-      const answer = userMessage.trim().toLowerCase();
-      const targetMap: Record<string, string> = {
-        "1": "local", 로컬: "local", 개발용: "local",
-        "2": "railway", railway: "railway",
-        "3": "vercel", vercel: "vercel",
-        "4": "fly", flyio: "fly",
-        "5": "aws", "6": "vps", ec2: "aws", ecs: "aws", vps: "vps", ubuntu: "vps",
-      };
-      const picked = Object.entries(targetMap).find(([k]) => answer.startsWith(k))?.[1];
-      if (picked) {
-        this.selectedDeployTarget = picked;
-        this.pendingDeployChoice = false;
-      }
+    if (appBuild) {
+      if (!this.selectedStack) this.selectedStack = inferAppStack(userMessage, hasExistingStack);
+      if (!this.selectedDeployTarget) this.selectedDeployTarget = inferDeployTarget(userMessage);
     }
     const systems = designSystemNames();
+    const artifactSystem = detectDesignSystemFromRequest(userMessage, this.cwd);
     const withoutPaths = userMessage.replace(/\S*[\\/]\S*/g, " ").toLowerCase();
     let requestedSystem = systems.find((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(withoutPaths)) || "";
     if (!requestedSystem && /비케이브/.test(withoutPaths) && systems.includes("bcave")) requestedSystem = "bcave";
     if (!requestedSystem && /액시스/.test(withoutPaths) && systems.includes("axis")) requestedSystem = "axis";
+    if (!requestedSystem && artifactSystem) requestedSystem = artifactSystem;
     const pendingChoiceAnswer = this.pendingDesignChoice && /^[12](?:번)?$/.test(withoutPaths.trim());
     if (!requestedSystem && pendingChoiceAnswer) {
       requestedSystem = withoutPaths.trim().startsWith("1") ? "bcave" : "axis";
@@ -377,16 +295,22 @@ export class ConversationManager {
     // 디자인 선택을 기다리던 중 관계없는 요청이 오면 대기 해제
     if (this.pendingDesignChoice && !pendingChoiceAnswer && !dashboardRequest) {
       this.pendingDesignChoice = false;
+      this.pendingDashboardRequest = "";
     }
-    const uiRequest = dashboardRequest || Boolean(pendingChoiceAnswer);
+    const uiRequest = dashboardRequest || Boolean(pendingChoiceAnswer) || Boolean(artifactSystem);
     // 명시적으로 지정된 시스템만 우선 적용한다.
     // 대시보드 요청(uiRequest)은 항상 물어본다 — config.designSystem 기본값으로 자동 선택 금지.
     // (앱 빌드의 applicationUiRequest 는 선택된 시스템을 유지해도 됨)
     if (!requestedSystem && applicationUiRequest && !uiRequest && hasDesignSystem(this.config.designSystem)) {
       requestedSystem = this.config.designSystem;
     }
+    // 같은 대화에서 대시보드를 수정·제거·확장할 때는 이미 선택한 시스템을 유지한다.
+    if (uiRequest && !requestedSystem && hasDesignSystem(this.selectedDesignSystem)) {
+      requestedSystem = this.selectedDesignSystem;
+    }
     if (uiRequest && !requestedSystem) {
       this.pendingDesignChoice = true;
+      this.pendingDashboardRequest = userMessage;
       const q = "이 대시보드/리포트에 사용할 디자인 시스템을 선택해 주세요:\n\n  1. **BCAVE** ✦ 자사 브랜드 · 모노톤 슬레이트 (기본/공식)\n  2. **AXIS** — 밝은 코발트 · 모던 프로페셔널\n\n번호로 답해 주세요.";
       this.messages.push({ role: "user", content: userMessage });
       this.messages.push({ role: "assistant", content: q });
@@ -403,8 +327,12 @@ export class ConversationManager {
     // 앱 빌드 시 setDesignSystemContext를 호출하지 않고 스타일은 자유롭게 구현한다.
     if (uiRequest && hasDesignSystem(this.selectedDesignSystem)) {
       const selected = this.selectedDesignSystem;
+      const layout = dashboardLayoutBrief(pendingChoiceAnswer ? this.pendingDashboardRequest : userMessage);
+      this.pendingDashboardRequest = "";
       this.setDesignSystemContext(selected,
           `[이번 UI 산출물은 ${selected.toUpperCase()} 디자인 시스템 강제 파이프라인을 사용한다.]\n` +
+          `[LAYOUT_INTENT:${layout.layout}] ${layout.guide}\n` +
+          "마크업 전에 데이터의 차원·시간축·사용자 질문을 바탕으로 내부 레이아웃 브리프를 세운다. 브랜드 규칙은 지키되 예제 순서나 KPI 4개 구성을 복제하지 않는다.\n" +
           designRules(selected) +
           `\n\nwrite_file을 정확히 한 번 호출하고 design_system: "${selected}", path, body, app_script 필드를 사용한다. ` +
           "body에는 <body> 내부 마크업만, app_script에는 데이터 자리표시자 할당과 JS만 넣는다. content·코드펜스·완성 HTML·<style>·<script>를 넣지 말고 template.html도 직접 읽지 않는다. " +
@@ -443,7 +371,7 @@ export class ConversationManager {
     if (appBuild || classifyTask(userMessage) === "heavy") {
       this.replaceSystemContext("[DEV]",
           "[DEV] 계획은 내부적으로 세우되 채팅에 출력하지 않는다.\n" +
-          "작업: 한 번에 한 파일씩 구현 → build/typecheck 확인 → 연결 검증(route/import/fetch).\n" +
+          "작업: 서로 의존하는 파일은 한 응답의 병렬 도구 호출로 묶어 구현 → 한 번의 build/typecheck → 연결 검증(route/import/fetch). 같은 파일을 불필요하게 여러 번 읽거나 쓰지 않는다.\n" +
           "연결 검증: 새 파일은 반드시 router/nav/server에 등록됐는지 직접 확인 후 완료 처리.\n" +
           "UI: 44px 터치, 4.5:1 대비, 인라인 에러, 반응형.\n" +
           "완료 응답: 만든 파일 목록 + '실행할까요?' 한 줄. 설명·계획·재언급 금지.\n" +
@@ -468,6 +396,8 @@ export class ConversationManager {
     let proxyRepairRounds = 0;
     let completenessRepairRounds = 0;
     let smokeRepairRounds = 0;
+    let totalAppRepairRounds = 0;
+    const maxTotalAppRepairRounds = Math.max(2, this.config.maxVerifyRounds + 1);
     let artifactValidationPending = false;
     let artifactRepairRounds = 0;
     const executionRequested = /(실행해|실행시켜|서버.{0,8}(?:켜|띄워|실행)|(?:^|\s)(?:run|start)(?:\s|$))/i.test(userMessage);
@@ -553,11 +483,12 @@ export class ConversationManager {
             yield { type: "verify", status: "run", cmd: verifyCmds.join(" && ") };
             const fail = runVerify(verifyCmds, this.cwd);
             if (fail) {
-              if (buildRepairRounds >= this.config.maxVerifyRounds) {
+              if (buildRepairRounds >= this.config.maxVerifyRounds || totalAppRepairRounds >= maxTotalAppRepairRounds) {
                 yield { type: "error", message: `빌드/타입 검증에 실패해 완료 처리하지 않았습니다.\n${fail.output}` };
                 return;
               }
               buildRepairRounds++;
+              if (this.applicationActive) totalAppRepairRounds++;
               codeTouched = false; // 다음 라운드에서 다시 수정하면 재검증
               this.messages.push({ role: "assistant", content: message.content ?? "" });
               this.messages.push({
@@ -603,11 +534,12 @@ export class ConversationManager {
               }
             }
             if (schemaIssues.length > 0) {
-              if (schemaRepairRounds >= this.config.maxVerifyRounds) {
+              if (schemaRepairRounds >= this.config.maxVerifyRounds || totalAppRepairRounds >= maxTotalAppRepairRounds) {
                 yield { type: "error", message: `DB 스키마 검증에 실패해 완료 처리하지 않았습니다.\n${schemaIssues.join("\n")}` };
                 return;
               }
               schemaRepairRounds++;
+              totalAppRepairRounds++;
               codeTouched = false;
               const detail = `[DB 스키마-INSERT 불일치]\n${schemaIssues.join("\n")}\n\n주의: CREATE TABLE IF NOT EXISTS 는 기존 테이블을 수정하지 않습니다. 컬럼 추가 시 DB 파일을 삭제하거나 ALTER TABLE ADD COLUMN 을 추가해야 합니다.`;
               this.messages.push({ role: "assistant", content: message.content ?? "" });
@@ -636,11 +568,12 @@ export class ConversationManager {
                 } catch { return false; }
               })();
               if (hasBackend && fetchesApi && !hasProxy) {
-                if (proxyRepairRounds >= this.config.maxVerifyRounds) {
+                if (proxyRepairRounds >= this.config.maxVerifyRounds || totalAppRepairRounds >= maxTotalAppRepairRounds) {
                   yield { type: "error", message: "Vite /api 프록시 검증에 실패해 완료 처리하지 않았습니다." };
                   return;
                 }
                 proxyRepairRounds++;
+                totalAppRepairRounds++;
                 codeTouched = false;
                 const issue = `[Vite 프록시 누락] 프론트(Vite)에서 fetch('/api/...')를 호출하지만 vite.config.ts 에 proxy 설정이 없습니다.\nVite 개발 서버(5173)는 /api 요청을 백엔드(예: 3001)로 전달하지 않아 "Failed to fetch" / "Unexpected end of JSON" 오류가 발생합니다.\n\n${viteCfgPath} 에 다음을 추가하세요:\nserver: { proxy: { '/api': { target: 'http://localhost:3001', changeOrigin: true } } }`;
                 this.messages.push({ role: "assistant", content: message.content ?? "" });
@@ -656,11 +589,12 @@ export class ConversationManager {
           if (this.applicationActive && this.config.autoVerify && codeTouched) {
             const completenessIssues = auditAppCompleteness(this.cwd);
             if (completenessIssues.length > 0) {
-              if (completenessRepairRounds >= this.config.maxVerifyRounds) {
+              if (completenessRepairRounds >= this.config.maxVerifyRounds || totalAppRepairRounds >= maxTotalAppRepairRounds) {
                 yield { type: "error", message: `화면 기능 연결 확인에 실패해 완료 처리하지 않았습니다.\n${completenessIssues.join("\n")}` };
                 return;
               }
               completenessRepairRounds++;
+              totalAppRepairRounds++;
               codeTouched = false;
               const detail = `[화면 완성도 확인 실패]\n${completenessIssues.map((issue) => `- ${issue}`).join("\n")}\n\n화면에 보이는 모든 메뉴·버튼·지표를 실제 기능/데이터에 연결하세요. 구현하지 않을 항목은 클릭 가능한 UI와 완성 주장 모두에서 제거하세요.`;
               this.messages.push({ role: "assistant", content: message.content ?? "" });
@@ -676,11 +610,12 @@ export class ConversationManager {
             yield { type: "verify", status: "run", cmd: "서버 실행 헬스체크(스모크)" };
             const smoke = await smokeTest(this.cwd, signal);
             if (!smoke.ok) {
-              if (smokeRepairRounds >= this.config.maxVerifyRounds) {
+              if (smokeRepairRounds >= this.config.maxVerifyRounds || totalAppRepairRounds >= maxTotalAppRepairRounds) {
                 yield { type: "error", message: `서비스 실행 검증에 실패해 완료 처리하지 않았습니다.\n${smoke.detail}` };
                 return;
               }
               smokeRepairRounds++;
+              totalAppRepairRounds++;
               codeTouched = false;
               this.messages.push({ role: "assistant", content: message.content ?? "" });
               this.messages.push({

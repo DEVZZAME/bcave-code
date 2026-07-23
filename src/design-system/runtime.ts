@@ -46,6 +46,18 @@ export function detectDesignSystemFromArtifact(filePath: string): string | null 
   return null;
 }
 
+/** 수정 요청에 포함된 기존 HTML 경로에서 디자인 시스템 마커를 찾는다. */
+export function detectDesignSystemFromRequest(message: string, cwd: string): string | null {
+  const candidates = [...message.matchAll(/([^"'`\s]+?\.html?)/gi)]
+    .map((match) => match[1])
+    .map((candidate) => path.resolve(cwd, candidate));
+  for (const candidate of candidates) {
+    const detected = detectDesignSystemFromArtifact(candidate);
+    if (detected) return detected;
+  }
+  return null;
+}
+
 function extractBlock(source: string, kind: "html:body" | "js:app"): string | null {
   const escaped = kind.replace(":", "\\s*:\\s*");
   const match = source.match(new RegExp("```" + escaped + "\\s*\\n([\\s\\S]*?)```", "i"));

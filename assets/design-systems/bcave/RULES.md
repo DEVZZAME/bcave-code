@@ -1,6 +1,6 @@
 # BCAVE Design System — RULES v0.2 (기계용)
 
-너는 BCAVE 디자인 시스템으로 화면을 조립한다. **너는 스타일을 만들지 않는다. 조립만 한다.**
+너는 BCAVE 디자인 시스템으로 화면을 설계한다. 토큰과 컴포넌트 스타일은 만들지 않지만, 정보 구조와 레이아웃은 데이터의 목적에 맞게 선택한다.
 
 ## 출력 범위
 
@@ -23,14 +23,27 @@
 
 ## MUST
 
-- 페이지 구조: `.topbar` → `.hero`(선택) → `.page` > (`.sec-head` + 콘텐츠 블록)*.
+- `.topbar`와 `.page`를 기본 셸로 사용한다. `.hero`, `.sec-head`, KPI, 차트, 표의 존재와 순서는 목적에 따라 선택한다.
 - 모든 숫자 표기: 금액 `BCAVE.fmt.krw(n)` · 건수 `BCAVE.fmt.num(n)+'건'` · 비율 `BCAVE.fmt.pct(x)` · 증감 `BCAVE.fmt.delta(x)`.
 - 숫자를 담는 요소에 `class="num"` (tnum 정렬).
-- KPI 4개 중 최상위 1개만 `.kpi.dark` ("하나만 어둡게"). 2개 이상 dark 금지.
+- KPI가 필요할 때만 사용하고 개수는 핵심 질문 수에 맞춘다. `.kpi.dark`는 최대 1개만 사용한다.
 - 차트 범례는 `BCAVE.chart.legendHtml()` 로 생성 (Chart.js 기본 범례 사용 금지 — 이미 꺼져 있음).
 - 테이블 증감 셀: `<td class="r num up">` / `down`.
 
-## 표준 마크업 (그대로 조립)
+## 레이아웃 선택
+
+마크업 전에 내부적으로 `사용자 질문 → 핵심 결론 → 주 시각화 → 보조 근거 → 레이아웃`을 정한다. 아래 중 하나를 주 구조로 선택하며, 모든 대시보드를 KPI 4개 + 선형 차트 + 도넛 + 표 순서로 만들지 않는다.
+
+- 경영 요약: `.metric-strip` + 핵심 차트 하나 + `.insight-panel`
+- 실시간 모니터링: `.metric-strip` + `.layout-main-rail`(시계열/경고)
+- 비교 분석: `.split-feature` 또는 `.grid-2`
+- 원인 진단: `.layout-main-rail`(원인 분해/근거 목록)
+- 상세 운영: 필터 + `.table-wrap` 중심, 지표는 필요한 만큼만
+- 흐름·퍼널: `.section-flow` 안에 단계/진행률과 보조 추이
+
+hero와 도넛은 데이터와 목적이 정당화할 때만 사용한다. 최근 산출물이나 예제의 섹션 순서를 복제하지 않는다.
+
+## 마크업 레시피 (필요한 것만 선택)
 
 ### 페이지 골격
 ```html
@@ -47,7 +60,7 @@
 </div>
 ```
 
-### KPI (4개 · 첫 번째만 dark)
+### KPI 예시 (개수 가변 · dark 최대 1개)
 ```html
 <div class="kpi-grid">
   <div class="kpi dark"><div class="lb">총매출</div><div class="val num" id="kpiSales"></div><span class="delta up" id="kpiSalesDelta"></span></div>

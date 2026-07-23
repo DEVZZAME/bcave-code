@@ -25,18 +25,8 @@ const config = {
   baseUrl: "https://api.openai.com/v1",
 };
 
-async function reachAppModel(cm: ConversationManager, request: string, deploy = "5") {
-  const stackQuestion = cm.run(request);
-  expect((await stackQuestion.next()).value).toMatchObject({ type: "text" });
-  await stackQuestion.return(undefined);
-
-  const deployQuestion = cm.run("1");
-  const deployEvent = await deployQuestion.next();
-  if (deployEvent.value?.type === "model") return deployQuestion;
-  expect(deployEvent.value).toMatchObject({ type: "text" });
-  await deployQuestion.return(undefined);
-
-  const app = cm.run(deploy);
+async function reachAppModel(cm: ConversationManager, request: string) {
+  const app = cm.run(request);
   expect((await app.next()).value).toMatchObject({ type: "model" });
   return app;
 }
@@ -84,13 +74,16 @@ describe("ConversationManager", () => {
 
   it("asks for a design system before a standalone dashboard", async () => {
     const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd());
-    const choose = cm.run("운영 대시보드 화면을 만들어줘");
+    const choose = cm.run("실시간 운영 모니터링 대시보드 화면을 만들어줘");
     expect((await choose.next()).value).toMatchObject({ type: "text" });
     await choose.return(undefined);
     const run = cm.run("1");
     expect((await run.next()).value).toMatchObject({ type: "model" });
     expect(cm.getHistory().some((message) =>
       message.role === "system" && String(message.content).includes("BCAVE 디자인 시스템 강제 파이프라인"),
+    )).toBe(true);
+    expect(cm.getHistory().some((message) =>
+      message.role === "system" && String(message.content).includes("[LAYOUT_INTENT:monitoring]"),
     )).toBe(true);
     await run.return(undefined);
   });
@@ -103,6 +96,24 @@ describe("ConversationManager", () => {
       message.role === "assistant" && String(message.content).includes("디자인 시스템을 선택"),
     )).toBe(false);
     await run.return(undefined);
+  });
+
+  it("reuses the selected design system for follow-up dashboard edits", async () => {
+    const cm = new ConversationManager(config, new PermissionManager("yolo"), process.cwd());
+    const choose = cm.run("운영 대시보드를 만들어줘");
+    expect((await choose.next()).value).toMatchObject({ type: "text" });
+    await choose.return(undefined);
+    const create = cm.run("1");
+    expect((await create.next()).value).toMatchObject({ type: "model" });
+    await create.return(undefined);
+
+    const edit = cm.run("대시보드의 hero를 제거하고 표 중심으로 다시 구성해줘");
+    expect((await edit.next()).value).toMatchObject({ type: "model" });
+    const chooserCount = cm.getHistory().filter((message) =>
+      message.role === "assistant" && String(message.content).includes("디자인 시스템을 선택"),
+    ).length;
+    expect(chooserCount).toBe(1);
+    await edit.return(undefined);
   });
 
   it("does not let a stale design choice intercept a port troubleshooting request", async () => {
