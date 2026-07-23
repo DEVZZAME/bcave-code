@@ -29,10 +29,12 @@ import { createBracketedPasteWriter, globalKeyAction } from "./terminal-input.js
 import { WorkSession } from "./work-session.js";
 import { CLI_COMMANDS } from "./commands.js";
 import { BCAVE_VERSION } from "../version.js";
+import { SessionModeRunner } from "./session-mode.js";
 
 // ─── CLI Args ──────────────────────────────────────────
 const args = process.argv.slice(2);
-let mode: PermissionMode = "auto-approve"; // 기본: Auto mode (카테고리별 자동 승인)
+type CliMode = PermissionMode | "session";
+let mode: CliMode = "auto-approve"; // 기본: Auto mode (카테고리별 자동 승인)
 let initialPrompt: string | undefined;
 
 const modelIdx = args.indexOf("--model");
@@ -46,7 +48,9 @@ if (hubIdx !== -1 && args[hubIdx + 1]) {
   saveConfig({ hubUrl: args[hubIdx + 1] });
 }
 
-if (args.includes("--dangerously-skip-permissions")) {
+if (args.includes("--session-mode")) {
+  mode = "session";
+} else if (args.includes("--dangerously-skip-permissions")) {
   mode = "yolo";
 } else if (args.includes("--safe")) {
   mode = "safe";
@@ -75,6 +79,7 @@ if (args.includes("--help") || args.includes("-h")) {
     --safe                             Safe mode (모든 작업 전 확인)
     --auto-approve                     Auto mode: 카테고리별 자동 승인 (기본값)
     --dangerously-skip-permissions     모든 권한 확인 건너뛰기
+    --session-mode                     시연용 사전 준비 모드 (LLM·로그인 미사용)
 `);
   process.exit(0);
 }
@@ -97,11 +102,12 @@ if (nonFlagArgs.length > 0) {
 }
 
 // ─── Mode ──────────────────────────────────────────────
-const MODE_ORDER: PermissionMode[] = ["safe", "auto-approve", "yolo"];
-const MODE_INFO: Record<PermissionMode, { label: string; color: (s: string) => string; desc: string }> = {
+const MODE_ORDER: CliMode[] = ["safe", "auto-approve", "yolo", "session"];
+const MODE_INFO: Record<CliMode, { label: string; color: (s: string) => string; desc: string }> = {
   safe: { label: "Safe mode", color: chalk.green, desc: "모든 작업 전 확인" },
   "auto-approve": { label: "Auto mode", color: chalk.yellow, desc: "카테고리별 자동 승인" },
   yolo: { label: "Yolo mode", color: chalk.red, desc: "확인 없이 실행" },
+  session: { label: "Session mode", color: chalk.magenta, desc: "사전 준비 시연 · LLM 미사용" },
 };
 
 function cycleMode(): void {
@@ -271,9 +277,13 @@ async function askYesAlwaysNo(): Promise<"yes" | "always" | "no"> {
 // ─── State ─────────────────────────────────────────────
 let config = loadConfig();
 if (modelOverride) config.model = modelOverride;
-let cm: ConversationManager | null = null;
+let cm: ConversationManager | SessionModeRunner | null = null;
 
 function rebuildCM(): void {
+  if (mode === "session") {
+    cm = new SessionModeRunner(safeCwd());
+    return;
+  }
   const pm = new PermissionManager(mode);
   cm = new ConversationManager(config, pm, safeCwd());
 }
@@ -283,7 +293,7 @@ const sessionController = new SessionController();
 
 /** 한 턴 끝날 때마다 현재 대화를 세션 파일로 저장한다. */
 function persistSession(userMsg: string): void {
-  if (!cm) return;
+  if (!cm || mode === "session") return;
   sessionController.persist(userMsg, safeCwd(), cm.getHistory());
 }
 
@@ -907,8 +917,10 @@ async function main(): Promise<void> {
     console.log(chalk.cyan.bold(bcaveArt[i]) + chalk.blue.bold(codeArt[i]));
   }
   console.log("");
-  const who = isLoggedIn(config) ? `  ·  ${config.userName || config.userEmail}` : "";
-  const modelLabel = config.autoRoute ? `자동(${config.modelHeavy} · ${config.modelLight})` : config.model;
+  const who = mode !== "session" && isLoggedIn(config) ? `  ·  ${config.userName || config.userEmail}` : "";
+  const modelLabel = mode === "session"
+    ? "사전 준비 시연 · LLM 미사용"
+    : config.autoRoute ? `자동(${config.modelHeavy} · ${config.modelLight})` : config.model;
 
   console.log("  " + chalk.dim(`v${BCAVE_VERSION}  ·  ${modelLabel}  ·  ${safeCwd()}${who}`));
   console.log("  " + chalk.dim("Shift+Tab 모드 전환  ·  ESC 입력 전체 지우기  ·  /help 명령어  ·  Ctrl+C 종료"));
@@ -927,12 +939,14 @@ async function main(): Promise<void> {
   }
 
   // 새 버전 알림 (설치본 vs GitHub 최신)
-  if (hasRemoteUpdate()) {
+  if (mode !== "session" && hasRemoteUpdate()) {
     console.log("  " + chalk.yellow("● 새 버전이 있습니다.") + chalk.dim("   bcave update  로 업데이트하세요."));
     console.log("");
   }
 
-  if (subcommand === "login") {
+  if (mode === "session") {
+    rebuildCM();
+  } else if (subcommand === "login") {
     await loginFlow();
   } else if (isLoggedIn(config)) {
     rebuildCM();
@@ -943,6 +957,10 @@ async function main(): Promise<void> {
 
   if (mode === "yolo") {
     console.log("  " + chalk.red("⚠ 모든 권한 확인이 비활성화되었습니다."));
+    console.log("");
+  }
+  if (mode === "session") {
+    console.log("  " + chalk.magenta("● Session mode") + chalk.dim(" · 로그인과 LLM 호출 없이 사전 준비된 시연만 실행합니다."));
     console.log("");
   }
 

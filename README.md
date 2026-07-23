@@ -134,8 +134,28 @@ PostgreSQL을 사용하는 Railway용 주문 관리 서비스를 만들어줘.
 | Auto | `bcave` 또는 `bcave --auto-approve` | 작업 종류별 최초 한 번 확인 |
 | Safe | `bcave --safe` | 모든 도구 작업 전에 확인 |
 | Yolo | `bcave --dangerously-skip-permissions` | 확인 없이 실행하므로 신뢰할 수 있는 프로젝트에서만 사용 |
+| Session | `bcave --session-mode` | 로그인·LLM 호출 없이 사전 준비된 전사 시연 실행 |
 
 대화 중 `Shift+Tab`으로 모드를 전환할 수 있습니다.
+
+### 전사 시연용 Session mode
+
+시연할 작업 폴더에서 다음과 같이 실행합니다.
+
+```bash
+cd /Users/bcave/Desktop/0session
+bcave --session-mode
+```
+
+Session mode는 외부 모델이나 HUB 로그인에 의존하지 않습니다.
+
+- 파일 경로와 함께 대시보드 생성을 요청하면 BCAVE·AXIS 선택 화면을 표시합니다.
+- BCAVE 선택 시 `/Users/bcave/Desktop/0session/dashboard/bcave-dashboard.html`을 약 30초 후 현재 폴더에 복사합니다.
+- AXIS 선택 시 `/Users/bcave/Desktop/0session/dashboard/axis-dashboard.html`을 약 30초 후 현재 폴더에 복사합니다.
+- 패션 회사용 서비스 개발을 요청하면 `/Users/bcave/Desktop/0session/project`의 준비된 프로젝트 중 하나를 무작위로 현재 폴더에 복사합니다.
+- 그 밖의 요청은 실행하지 않으며 실제 LLM으로 전환되지 않습니다.
+
+시연 전 준비 파일이 위 경로에 존재하는지 확인하세요.
 
 ## 4. 대화 중 명령
 
@@ -165,6 +185,7 @@ PostgreSQL을 사용하는 Railway용 주문 관리 서비스를 만들어줘.
 | `bcave doctor` | 설치·Node.js·설정·의존성 진단 |
 | `bcave --model <model>` | 이번 실행에 사용할 모델 지정 |
 | `bcave --hub-url <url>` | 사내 HUB 주소 지정 |
+| `bcave --session-mode` | 로그인·LLM 없는 사전 준비 시연 모드 |
 | `bcave --help` | CLI 도움말 표시 |
 
 ## 6. 업데이트
