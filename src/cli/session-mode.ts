@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { AgentEvent } from "../agent/conversation.js";
+import { executeTool } from "../agent/tools.js";
 
 export function resolveSessionAssetRoot(moduleUrl = import.meta.url): string {
   return path.resolve(path.dirname(fileURLToPath(moduleUrl)), "..", "..", "assets", "session-mode");
@@ -14,6 +15,7 @@ export interface SessionModeOptions {
   projectRoot?: string;
   delayMs?: number;
   random?: () => number;
+  startService?: (projectPath: string) => Promise<string>;
 }
 
 const wait = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve) => {
@@ -49,10 +51,13 @@ export class SessionModeRunner {
   private readonly projectRoot: string;
   private readonly delayMs: number;
   private readonly random: () => number;
+  private readonly startService: (projectPath: string) => Promise<string>;
   private pendingDashboard = false;
   private dashboardInput = "";
   private lastDashboardSystem: "bcave" | "axis" | null = null;
   private lastDashboardOutput = "";
+  private lastProjectOutput = "";
+  private lastServiceUrl = "";
 
   constructor(private readonly cwd: string, options: SessionModeOptions = {}) {
     const assetRoot = resolveSessionAssetRoot();
@@ -61,6 +66,8 @@ export class SessionModeRunner {
     this.projectRoot = options.projectRoot ?? path.join(assetRoot, "projects");
     this.delayMs = Math.max(0, options.delayMs ?? 30_000);
     this.random = options.random ?? Math.random;
+    this.startService = options.startService ?? ((projectPath) =>
+      executeTool("shell_exec", { command: "npm start" }, projectPath));
   }
 
   getHistory(): ChatCompletionMessageParam[] { return []; }
@@ -175,8 +182,35 @@ export class SessionModeRunner {
     await wait(third, signal);
     if (signal?.aborted) return;
     fs.cpSync(source, output, { recursive: true, force: true });
+    this.lastProjectOutput = output;
+    this.lastServiceUrl = "";
     yield { type: "tool_result", name: "write_file", result: `File written: ${output}` };
     yield { type: "text", content: `서비스 생성 완료: ${output}` };
+    yield { type: "done" };
+  }
+
+  private async *startPreparedService(): AsyncGenerator<AgentEvent> {
+    if (!this.lastProjectOutput || !fs.existsSync(path.join(this.lastProjectOutput, "package.json"))) {
+      yield { type: "error", message: "먼저 Session mode에서 패션 회사용 서비스를 생성해 주세요." };
+      yield { type: "done" };
+      return;
+    }
+    if (this.lastServiceUrl) {
+      yield { type: "text", content: `서버 실행 중: ${this.lastServiceUrl}` };
+      yield { type: "done" };
+      return;
+    }
+
+    yield { type: "tool_start", name: "shell_exec", args: { command: "npm start" } };
+    const result = await this.startService(this.lastProjectOutput);
+    yield { type: "tool_result", name: "shell_exec", result };
+    if (!result.startsWith("[SERVER_STARTED]")) {
+      yield { type: "error", message: result };
+      yield { type: "done" };
+      return;
+    }
+    this.lastServiceUrl = result.match(/https?:\/\/[^\s]+/)?.[0] ?? "";
+    yield { type: "text", content: `서버 실행 완료: ${this.lastServiceUrl || this.lastProjectOutput}` };
     yield { type: "done" };
   }
 
@@ -185,6 +219,11 @@ export class SessionModeRunner {
     if (this.pendingDashboard && /^[12](?:번)?$/.test(normalized)) {
       this.pendingDashboard = false;
       yield* this.copyDashboard(normalized.startsWith("1") ? "bcave" : "axis", signal);
+      return;
+    }
+    const serverStartIntent = /(?:서버.{0,8}(?:실행|켜|띄워|시작)|실행해\s*줘|실행해\s*주세요|run\s+(?:the\s+)?server|start\s+(?:the\s+)?server)/i.test(normalized);
+    if (serverStartIntent) {
+      yield* this.startPreparedService();
       return;
     }
     const editIntent = /(?:수정|변경|고쳐|바꿔|업데이트|update|edit|modify)/i.test(normalized);

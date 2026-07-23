@@ -98,6 +98,37 @@ describe("SessionModeRunner", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it("starts the generated service and reports its verified URL", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-server-"));
+    const prepared = path.join(root, "project");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(cwd);
+    fs.mkdirSync(path.join(prepared, "fashion-service"));
+    fs.writeFileSync(path.join(prepared, "fashion-service", "package.json"), '{"scripts":{"start":"node server.js"}}');
+    let startedPath = "";
+    const runner = new SessionModeRunner(cwd, {
+      projectRoot: prepared,
+      delayMs: 0,
+      random: () => 0,
+      startService: async (projectPath) => {
+        startedPath = projectPath;
+        return "[SERVER_STARTED] http://localhost:4100\nPID: 123";
+      },
+    });
+    await collect(runner, "패션회사에서 사용할 서비스를 개발해줘");
+    const events = await collect(runner, "서버 실행해줘");
+    expect(startedPath).toBe(path.join(cwd, "fashion-service"));
+    expect(events.some((event) => event.type === "text" && event.content.includes("http://localhost:4100"))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("does not start a server before a prepared service exists", async () => {
+    const runner = new SessionModeRunner(process.cwd(), { delayMs: 0 });
+    const events = await collect(runner, "서버 실행해줘");
+    expect(events[0]).toMatchObject({ type: "error" });
+  });
+
   it("does not fall through to arbitrary requests", async () => {
     const runner = new SessionModeRunner(process.cwd(), { delayMs: 0 });
     const events = await collect(runner, "오늘 날씨 알려줘");
