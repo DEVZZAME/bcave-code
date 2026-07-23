@@ -42,6 +42,8 @@ export function collectDoctorChecks(entryUrl = import.meta.url): DoctorCheck[] {
   const assetsExist = fs.existsSync(path.join(installDir, "assets", "design-systems"));
   const sessionAssetsExist = ["bcave-dashboard.html", "axis-dashboard.html"].every((file) =>
     fs.existsSync(path.join(installDir, "assets", "session-mode", "dashboards", file)),
+  ) && ["bcave-dashboard.html", "axis-dashboard1.html"].every((file) =>
+    fs.existsSync(path.join(installDir, "assets", "session-mode", "dashboard-updates", file)),
   ) && ["roundfit", "stylemetrics", "threadly"].every((project) =>
     fs.existsSync(path.join(installDir, "assets", "session-mode", "projects", project, "package.json")),
   );
@@ -84,7 +86,7 @@ export function collectDoctorChecks(entryUrl = import.meta.url): DoctorCheck[] {
     {
       label: "Session mode 자산",
       ok: sessionAssetsExist,
-      detail: sessionAssetsExist ? "대시보드 2개 · 프로젝트 3개 확인" : "Session mode 시연 자산 누락",
+      detail: sessionAssetsExist ? "대시보드 2개 · 수정본 2개 · 프로젝트 3개 확인" : "Session mode 시연 자산 누락",
       code: sessionAssetsExist ? undefined : "BCAVE_SESSION_ASSETS_MISSING",
     },
     {

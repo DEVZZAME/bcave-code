@@ -38,6 +38,50 @@ describe("SessionModeRunner", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it("overwrites the existing BCAVE dashboard with the prepared edit", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-edit-"));
+    const prepared = path.join(root, "dashboard");
+    const updates = path.join(root, "updates");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(updates);
+    fs.mkdirSync(cwd);
+    fs.writeFileSync(path.join(prepared, "bcave-dashboard.html"), "bcave original");
+    fs.writeFileSync(path.join(updates, "bcave-dashboard.html"), "bcave edited");
+    const runner = new SessionModeRunner(cwd, {
+      dashboardRoot: prepared,
+      dashboardUpdateRoot: updates,
+      delayMs: 0,
+    });
+    await collect(runner, "data.xlsx 대시보드 만들어줘");
+    await collect(runner, "1");
+    await collect(runner, "이 결과물을 수정해줘");
+    expect(fs.readFileSync(path.join(cwd, "bcave-dashboard.html"), "utf8")).toBe("bcave edited");
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("overwrites the existing AXIS dashboard with the prepared dark version", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "axis-session-edit-"));
+    const prepared = path.join(root, "dashboard");
+    const updates = path.join(root, "updates");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(updates);
+    fs.mkdirSync(cwd);
+    fs.writeFileSync(path.join(prepared, "axis-dashboard.html"), "axis original");
+    fs.writeFileSync(path.join(updates, "axis-dashboard1.html"), "axis dark");
+    const runner = new SessionModeRunner(cwd, {
+      dashboardRoot: prepared,
+      dashboardUpdateRoot: updates,
+      delayMs: 0,
+    });
+    await collect(runner, "data.xlsx 대시보드 만들어줘");
+    await collect(runner, "2");
+    await collect(runner, "다크모드로 바꿔줘");
+    expect(fs.readFileSync(path.join(cwd, "axis-dashboard.html"), "utf8")).toBe("axis dark");
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
   it("copies one of the prepared fashion projects without an LLM", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-project-"));
     const prepared = path.join(root, "project");

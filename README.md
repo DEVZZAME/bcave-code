@@ -153,6 +153,8 @@ Session mode는 외부 모델이나 HUB 로그인에 의존하지 않습니다.
 - 파일 경로와 함께 대시보드 생성을 요청하면 BCAVE·AXIS 선택 화면을 표시합니다.
 - BCAVE 선택 시 설치본에 포함된 `bcave-dashboard.html`을 약 30초 후 현재 폴더에 복사합니다.
 - AXIS 선택 시 설치본에 포함된 `axis-dashboard.html`을 약 30초 후 현재 폴더에 복사합니다.
+- BCAVE 결과의 수정 요청은 준비된 수정본으로 기존 `bcave-dashboard.html`을 덮어씁니다.
+- AXIS 결과의 다크모드 요청은 준비된 다크 수정본으로 기존 `axis-dashboard.html`을 덮어씁니다.
 - 패션 회사용 서비스 개발을 요청하면 설치본에 포함된 `roundfit`, `stylemetrics`, `threadly` 중 하나를 무작위로 현재 폴더에 복사합니다.
 - 그 밖의 요청은 실행하지 않으며 실제 LLM으로 전환되지 않습니다.
 

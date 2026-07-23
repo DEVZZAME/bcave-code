@@ -86,6 +86,8 @@ try {
   if (-not (Test-Path (Join-Path $TempDir "assets\design-systems") -PathType Container)) { Stop-Install "디자인 시스템 자산이 누락됐습니다." }
   if (-not (Test-Path (Join-Path $TempDir "assets\session-mode\dashboards\bcave-dashboard.html") -PathType Leaf)) { Stop-Install "Session mode BCAVE 대시보드가 누락됐습니다." }
   if (-not (Test-Path (Join-Path $TempDir "assets\session-mode\dashboards\axis-dashboard.html") -PathType Leaf)) { Stop-Install "Session mode AXIS 대시보드가 누락됐습니다." }
+  if (-not (Test-Path (Join-Path $TempDir "assets\session-mode\dashboard-updates\bcave-dashboard.html") -PathType Leaf)) { Stop-Install "Session mode BCAVE 수정본이 누락됐습니다." }
+  if (-not (Test-Path (Join-Path $TempDir "assets\session-mode\dashboard-updates\axis-dashboard1.html") -PathType Leaf)) { Stop-Install "Session mode AXIS 수정본이 누락됐습니다." }
   foreach ($ProjectName in @("roundfit", "stylemetrics", "threadly")) {
     if (-not (Test-Path (Join-Path $TempDir "assets\session-mode\projects\$ProjectName\node_modules") -PathType Container)) {
       Stop-Install "Session mode 프로젝트 의존성이 누락됐습니다: $ProjectName"

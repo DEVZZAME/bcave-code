@@ -110,6 +110,8 @@ step "설치본 검증"
 [ -d "$TEMP_DIR/assets/design-systems" ] || { fail "디자인 시스템 자산이 누락됐습니다."; exit 1; }
 [ -f "$TEMP_DIR/assets/session-mode/dashboards/bcave-dashboard.html" ] || { fail "Session mode BCAVE 대시보드가 누락됐습니다."; exit 1; }
 [ -f "$TEMP_DIR/assets/session-mode/dashboards/axis-dashboard.html" ] || { fail "Session mode AXIS 대시보드가 누락됐습니다."; exit 1; }
+[ -f "$TEMP_DIR/assets/session-mode/dashboard-updates/bcave-dashboard.html" ] || { fail "Session mode BCAVE 수정본이 누락됐습니다."; exit 1; }
+[ -f "$TEMP_DIR/assets/session-mode/dashboard-updates/axis-dashboard1.html" ] || { fail "Session mode AXIS 수정본이 누락됐습니다."; exit 1; }
 for session_project in roundfit stylemetrics threadly; do
     [ -d "$TEMP_DIR/assets/session-mode/projects/$session_project/node_modules" ] || { fail "Session mode 프로젝트 의존성이 누락됐습니다: $session_project"; exit 1; }
 done
