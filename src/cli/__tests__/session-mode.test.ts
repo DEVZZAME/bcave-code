@@ -13,8 +13,9 @@ async function collect(runner: SessionModeRunner, message: string) {
 
 describe("SessionModeRunner", () => {
   it("resolves bundled assets from the installed CLI root", () => {
-    const moduleUrl = pathToFileURL("/opt/bcave/dist/cli/session-mode.js").href;
-    expect(resolveSessionAssetRoot(moduleUrl)).toBe(path.join("/opt/bcave", "assets", "session-mode"));
+    const installRoot = path.join(path.parse(process.cwd()).root, "opt", "bcave");
+    const moduleUrl = pathToFileURL(path.join(installRoot, "dist", "cli", "session-mode.js")).href;
+    expect(resolveSessionAssetRoot(moduleUrl)).toBe(path.join(installRoot, "assets", "session-mode"));
   });
 
   it("asks for a design system then copies the selected prepared dashboard", async () => {
