@@ -102,7 +102,7 @@ if (nonFlagArgs.length > 0) {
 }
 
 // ─── Mode ──────────────────────────────────────────────
-const MODE_ORDER: CliMode[] = ["safe", "auto-approve", "yolo", "session"];
+const MODE_ORDER: CliMode[] = ["safe", "auto-approve", "session", "yolo"];
 const MODE_INFO: Record<CliMode, { label: string; color: (s: string) => string; desc: string }> = {
   safe: { label: "Safe mode", color: chalk.green, desc: "모든 작업 전 확인" },
   "auto-approve": { label: "Auto mode", color: chalk.yellow, desc: "카테고리별 자동 승인" },
@@ -114,9 +114,7 @@ function cycleMode(): void {
   const idx = MODE_ORDER.indexOf(mode);
   mode = MODE_ORDER[(idx + 1) % MODE_ORDER.length];
   rebuildCM();
-  const info = MODE_INFO[mode];
   process.stdout.write("\r\x1b[2K");
-  console.log(info.color(`  → ${info.label}`) + chalk.dim(` — ${info.desc}`));
 }
 
 // ─── Slash Commands ────────────────────────────────────
