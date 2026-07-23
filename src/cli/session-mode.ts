@@ -16,6 +16,7 @@ export interface SessionModeOptions {
   dashboardUpdateRoot?: string;
   projectRoot?: string;
   delayMs?: number;
+  roundfitDelayMs?: number;
   random?: () => number;
   startService?: (projectPath: string) => Promise<string>;
   installDeps?: (projectPath: string) => Promise<string>;
@@ -82,6 +83,7 @@ export class SessionModeRunner {
   private readonly dashboardUpdateRoot: string;
   private readonly projectRoot: string;
   private readonly delayMs: number;
+  private readonly roundfitDelayMs: number;
   private readonly random: () => number;
   private readonly startService: (projectPath: string) => Promise<string>;
   private readonly installDeps: (projectPath: string) => Promise<string>;
@@ -99,6 +101,8 @@ export class SessionModeRunner {
     this.dashboardUpdateRoot = options.dashboardUpdateRoot ?? path.join(assetRoot, "dashboard-updates");
     this.projectRoot = options.projectRoot ?? path.join(assetRoot, "projects");
     this.delayMs = Math.max(0, options.delayMs ?? 30_000);
+    // roundfit 전용 요청은 더 정교하게 만드는 것처럼 보이도록 1분 23초(83초) 동안 시연한다.
+    this.roundfitDelayMs = Math.max(0, options.roundfitDelayMs ?? 83_000);
     this.random = options.random ?? Math.random;
     this.startService = options.startService ?? (async (projectPath) => {
       // 준비된 서비스들은 3000/4000 기본 포트를 쓰므로, 재실행·중복 실행 시 EADDRINUSE로 죽는다.
@@ -239,9 +243,10 @@ export class SessionModeRunner {
 
     const source = target.path;
     const output = path.join(this.cwd, target.name);
-    const first = Math.round(this.delayMs * 0.25);
-    const second = Math.round(this.delayMs * 0.25);
-    const third = Math.max(0, this.delayMs - first - second);
+    const totalDelay = preferred === "roundfit" ? this.roundfitDelayMs : this.delayMs;
+    const first = Math.round(totalDelay * 0.25);
+    const second = Math.round(totalDelay * 0.25);
+    const third = Math.max(0, totalDelay - first - second);
 
     yield { type: "tool_start", name: "list_files", args: { path: "." } };
     await wait(first, signal);

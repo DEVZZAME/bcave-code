@@ -113,10 +113,30 @@ describe("SessionModeRunner", () => {
     fs.mkdirSync(cwd);
     seedProjects(prepared, ["roundfit", "stylemetrics", "threadly"]);
     // random 0 이면 무작위 선택은 stylemetrics 를 고르지만, roundfit 프롬프트는 반드시 roundfit 이어야 한다.
-    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, random: () => 0 });
+    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, roundfitDelayMs: 0, random: () => 0 });
     await collect(runner, "패션 회사 매장 라운딩 점검표를 기록하는 웹사이트, 이름은 Ro-undFit 으로 만들어줘");
     expect(fs.existsSync(path.join(cwd, "roundfit", "package.json"))).toBe(true);
     expect(fs.existsSync(path.join(cwd, "stylemetrics"))).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("spends the roundfit-specific delay when developing roundfit", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bcave-session-roundfit-delay-"));
+    const prepared = path.join(root, "project");
+    const cwd = path.join(root, "output");
+    fs.mkdirSync(prepared);
+    fs.mkdirSync(cwd);
+    seedProjects(prepared, ["roundfit", "stylemetrics"]);
+    // roundfit 은 roundfitDelayMs, 일반 요청은 delayMs 를 쓴다는 것을 시간차로 확인한다.
+    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, roundfitDelayMs: 120, random: () => 0 });
+    const roundfitStart = Date.now();
+    await collect(runner, "roundfit 서비스 개발해줘");
+    const roundfitElapsed = Date.now() - roundfitStart;
+    const genericStart = Date.now();
+    await collect(runner, "패션회사 서비스 아무거나 개발해줘");
+    const genericElapsed = Date.now() - genericStart;
+    expect(roundfitElapsed).toBeGreaterThanOrEqual(100);
+    expect(genericElapsed).toBeLessThan(roundfitElapsed);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -142,7 +162,7 @@ describe("SessionModeRunner", () => {
     fs.mkdirSync(prepared);
     fs.mkdirSync(cwd);
     seedProjects(prepared, ["roundfit", "stylemetrics", "threadly"]);
-    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, random: () => 0 });
+    const runner = new SessionModeRunner(cwd, { projectRoot: prepared, delayMs: 0, roundfitDelayMs: 0, random: () => 0 });
     // 1) generic → stylemetrics, 2) generic → threadly, 3) generic → 남은 것 없음
     await collect(runner, "패션회사 서비스 아무거나 개발해줘");
     await collect(runner, "패션회사 서비스 아무거나 개발해줘");
