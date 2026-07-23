@@ -870,6 +870,13 @@ export async function executeTool(
         // 산출물(HTML/대시보드)을 shell(cat/echo/python/node 등)로 직접 써서 데이터·검토
         // 파이프라인을 우회하는 것을 차단 — 반드시 write_file 로 저장해야 데이터 주입과 자동 검토가 적용된다.
         const cmd = String(args.command ?? "");
+        // 세션 데모 등에서 포트 충돌을 피하려 PORT 같은 값을 주입할 수 있게 한다.
+        const extraEnv: Record<string, string> = {};
+        if (args.env && typeof args.env === "object") {
+          for (const [k, v] of Object.entries(args.env as Record<string, unknown>)) {
+            if (v != null) extraEnv[k] = String(v);
+          }
+        }
         const readsSpreadsheetWithPython =
           /python(?:3)?\b/i.test(cmd) &&
           /\.(?:xlsx|xlsm?|xlsb|ods|csv|tsv)\b/i.test(cmd) &&
@@ -893,7 +900,7 @@ export async function executeTool(
           const logPath = path.join(os.tmpdir(), `bcave-server-${Date.now()}-${process.pid}.log`);
           const logFd = fs.openSync(logPath, "a");
           const child = spawn(cmd, { cwd, shell: true, detached: true, stdio: ["ignore", logFd, logFd],
-            env: { ...process.env, NODE_ENV: "development", BROWSER: "none", FORCE_COLOR: "0" } });
+            env: { ...process.env, NODE_ENV: "development", BROWSER: "none", FORCE_COLOR: "0", ...extraEnv } });
           fs.closeSync(logFd);
           let exited: number | null = null;
           child.on("exit", (c) => { exited = c ?? 0; });
@@ -950,6 +957,7 @@ export async function executeTool(
             cwd,
             timeout: 120_000,
             maxBuffer: 10 * 1024 * 1024,
+            env: { ...process.env, ...extraEnv },
           });
           let stdout = "";
           let stderr = "";

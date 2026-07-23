@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +48,19 @@ function referencedPath(message: string): string {
   return message.match(/(?:\/[^ \n\r\t"'`]+)+\.(?:xlsx|xls|xlsm|csv|tsv|ods|json)/i)?.[0] ?? "";
 }
 
+/** OS가 비어 있는 TCP 포트를 하나 골라 준다. 준비된 서비스가 기본 포트(3000/4000)에서 충돌하는 것을 피한다. */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
 /** 서버 실행 요청에 명시된 프로젝트 디렉터리 경로(절대/홈/상대)를 뽑아낸다. 데이터·산출 파일 경로는 제외. */
 function referencedDirectory(message: string): string {
   const match = message.match(/(?:~|\.{1,2})?(?:\/[^\s"'`]+)+/);
@@ -79,8 +93,12 @@ export class SessionModeRunner {
     this.projectRoot = options.projectRoot ?? path.join(assetRoot, "projects");
     this.delayMs = Math.max(0, options.delayMs ?? 30_000);
     this.random = options.random ?? Math.random;
-    this.startService = options.startService ?? ((projectPath) =>
-      executeTool("shell_exec", { command: "npm start" }, projectPath));
+    this.startService = options.startService ?? (async (projectPath) => {
+      // 준비된 서비스들은 3000/4000 기본 포트를 쓰므로, 재실행·중복 실행 시 EADDRINUSE로 죽는다.
+      // 매번 비어 있는 포트를 잡아 주입해 충돌 없이 뜨게 한다.
+      const port = await findFreePort();
+      return executeTool("shell_exec", { command: "npm start", env: { PORT: String(port) } }, projectPath);
+    });
     this.installDeps = options.installDeps ?? ((projectPath) =>
       executeTool("shell_exec", { command: "npm install --no-audit --no-fund --loglevel=error" }, projectPath));
   }

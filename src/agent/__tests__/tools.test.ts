@@ -61,6 +61,14 @@ describe("Tools", () => {
     expect(extractServerPorts(logs)).toEqual([5174, 3001]);
   });
 
+  it("passes an env override into the executed command", async () => {
+    const result = await executeTool("shell_exec", {
+      command: "node -e \"process.stdout.write(String(process.env.PORT))\"",
+      env: { PORT: "54321" },
+    }, testDir);
+    expect(result).toContain("54321");
+  });
+
   it("redirects Python spreadsheet inspection to the native reader", async () => {
     const result = await executeTool("shell_exec", {
       command: "python3 -c \"import pandas as pd; pd.read_excel('sample.xlsx')\"",
